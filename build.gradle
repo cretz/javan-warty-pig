@@ -1,0 +1,64 @@
+group 'javan-warty-pig'
+version '0.1.0'
+
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.2'
+    }
+}
+
+allprojects {
+    apply plugin: 'java'
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+    repositories {
+        mavenCentral()
+    }
+}
+
+project(':agent') {
+    apply plugin: 'com.github.johnrengelman.shadow'
+    dependencies {
+        compile project(':fuzz')
+    }
+    build.dependsOn 'shadowJar'
+    shadowJar {
+        relocate 'org.objectweb.asm', 'jwp.agent.shade.org.objectweb.asm'
+        relocate 'com.google.common', 'jwp.agent.shade.com.google.common'
+        baseName = 'javan-warty-pig-agent'
+        classifier = null
+        version = null
+        manifest {
+            attributes 'Premain-Class': 'jwp.agent.Agent'
+            attributes 'Can-Redefine-Classes': 'true'
+            attributes 'Can-Retransform-Classes': 'true'
+        }
+    }
+}
+
+project(':fuzz') {
+    dependencies {
+        compile 'org.ow2.asm:asm:6.0'
+        compile 'org.ow2.asm:asm-commons:6.0'
+        compile 'com.google.guava:guava:23.6-jre'
+    }
+}
+
+project(':examples') {
+    subprojects {
+        apply plugin: 'application'
+        dependencies {
+            compile project(':agent')
+        }
+    }
+}
+
+project(':examples:simple') {
+    mainClassName = 'jwp.examples.simple.Main'
+    run {
+        jvmArgs '-javaagent:../../agent/build/libs/agent.jar'
+    }
+}
