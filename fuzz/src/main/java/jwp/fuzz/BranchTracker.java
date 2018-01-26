@@ -3,17 +3,14 @@ package jwp.fuzz;
 import org.objectweb.asm.Opcodes;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class BranchTracker {
 
-  // Keyed by thread ID. Note, it's possible in some JVMs that the thread ID may be reused, but the
-  // purpose of using thread ID is for us to have a quick thread-local that stays around. The values
-  // are keyed by branch hash and the value is hit count.
-  public static final ConcurrentMap<Long, Map<Integer, Integer>> threadBranches = new ConcurrentHashMap<>();
+  public static final ConcurrentMap<Long, BranchHits> branchHits = new ConcurrentHashMap<>();
 
   public static final MethodBranchAdapter.MethodRefs refs;
 
@@ -41,17 +38,14 @@ public class BranchTracker {
     }
   }
 
-  public static void addBranchHash(int branchHash) {
-    // Since we're per thread here, we are safe once inside the map
-    Map<Integer, Integer> branches = threadBranches.get(Thread.currentThread().getId());
-    int prevHitCount = 0;
-    if (branches == null) {
-      branches = new HashMap<>();
-      threadBranches.put(Thread.currentThread().getId(), branches);
-    } else {
-      prevHitCount = branches.get(branchHash);
+  public static void addBranchHash(Integer branchHash) {
+    Long threadId = Thread.currentThread().getId();
+    BranchHits hits = branchHits.get(threadId);
+    if (hits == null) {
+      hits = new BranchHits(threadId);
+      branchHits.put(threadId, hits);
     }
-    branches.put(branchHash, prevHitCount + 1);
+    hits.addHit(branchHash);
   }
 
   public static void ifZeroCheck(int value, int opcode, int branchHash) {
@@ -142,5 +136,27 @@ public class BranchTracker {
   public static void catchCheck(Throwable ex, int branchHash) {
     // We don't care what the throwable is TODO: configurable
     addBranchHash(branchHash);
+  }
+
+  public static class IntRef {
+    public int value;
+  }
+
+  public static class BranchHits {
+    public final long threadId;
+    public final LinkedHashMap<Integer, IntRef> branchHashHits = new LinkedHashMap<>();
+
+    public BranchHits(long threadId) {
+      this.threadId = threadId;
+    }
+
+    public void addHit(Integer branchHash) {
+      IntRef counter = branchHashHits.get(branchHash);
+      if (counter == null) {
+        counter = new IntRef();
+        branchHashHits.put(branchHash, counter);
+      }
+      counter.value++;
+    }
   }
 }

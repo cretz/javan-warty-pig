@@ -36,7 +36,7 @@ public class MethodBranchAdapter extends MethodNode {
     int insnIndex = instructions.indexOf(insn);
     for (AbstractInsnNode node : before) insns.add(node);
     // Add branch hash and make static call
-    insns.add(new LdcInsnNode(insnIndex + before.length + 2));
+    insns.add(new LdcInsnNode(insnHashCode(insnIndex + before.length + 2)));
     insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, ref.classSig, ref.methodName, ref.methodName, false));
     instructions.insertBefore(insn, insns);
   }

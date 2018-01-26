@@ -23,11 +23,12 @@ project(':agent') {
     apply plugin: 'com.github.johnrengelman.shadow'
     dependencies {
         compile project(':fuzz')
+
+        testCompile 'junit:junit:4.12'
     }
     build.dependsOn 'shadowJar'
     shadowJar {
         relocate 'org.objectweb.asm', 'jwp.agent.shade.org.objectweb.asm'
-        relocate 'com.google.common', 'jwp.agent.shade.com.google.common'
         baseName = 'javan-warty-pig-agent'
         classifier = null
         version = null
@@ -43,7 +44,8 @@ project(':fuzz') {
     dependencies {
         compile 'org.ow2.asm:asm:6.0'
         compile 'org.ow2.asm:asm-commons:6.0'
-        compile 'com.google.guava:guava:23.6-jre'
+
+        testCompile 'junit:junit:4.12'
     }
 }
 
