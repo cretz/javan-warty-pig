@@ -129,6 +129,8 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
   }
 
   public static class Config {
+    public static Builder builder() { return new Builder(); }
+
     public final List<byte[]> initialValues;
     public final List<byte[]> dictionary;
     public final BranchHit.Hasher hasher;
@@ -173,8 +175,6 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       this.havocBlockXLarge = havocBlockXLarge;
       this.maxInput = maxInput;
     }
-
-    public Builder builder() { return new Builder(); }
 
     public static class Builder {
       // Consts that aren't usually changed

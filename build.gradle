@@ -29,14 +29,20 @@ project(':agent') {
     build.dependsOn 'shadowJar'
     shadowJar {
         relocate 'org.objectweb.asm', 'jwp.agent.shade.org.objectweb.asm'
-        baseName = 'javan-warty-pig-agent'
+        baseName = 'jwp-agent'
         classifier = null
         version = null
         manifest {
-            attributes 'Premain-Class': 'jwp.agent.Agent'
+            attributes 'Premain-Class': 'jwp.agent.AgentBootstrap'
             attributes 'Can-Redefine-Classes': 'true'
             attributes 'Can-Retransform-Classes': 'true'
         }
+    }
+    test {
+        dependsOn 'shadowJar'
+        jvmArgs '-javaagent:build/libs/jwp-agent.jar'
+        outputs.upToDateWhen { false }
+        testLogging.showStandardStreams = true
     }
 }
 
@@ -44,8 +50,13 @@ project(':fuzz') {
     dependencies {
         compile 'org.ow2.asm:asm:6.0'
         compile 'org.ow2.asm:asm-commons:6.0'
+        compile 'org.ow2.asm:asm-util:6.0'
 
         testCompile 'junit:junit:4.12'
+    }
+    test {
+        outputs.upToDateWhen { false }
+        testLogging.showStandardStreams = true
     }
 }
 

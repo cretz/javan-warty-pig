@@ -1,5 +1,10 @@
 package jwp.fuzz;
 
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.util.TraceClassVisitor;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.*;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -47,6 +52,13 @@ public class Util {
       if (i >= 0) flipBit(bytes, i);
     }
     return false;
+  }
+
+  public static String classBytesToString(byte[] bytes) {
+    ClassReader reader = new ClassReader(bytes);
+    StringWriter stringWriter = new StringWriter();
+    reader.accept(new TraceClassVisitor(new PrintWriter(stringWriter)), 0);
+    return stringWriter.toString();
   }
 
   public static boolean contains(byte[] arr, byte item) {

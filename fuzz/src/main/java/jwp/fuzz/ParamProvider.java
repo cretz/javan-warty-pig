@@ -9,7 +9,8 @@ import java.util.stream.StreamSupport;
 public abstract class ParamProvider implements AutoCloseable {
   public final ParamGenerator<? super Object>[] paramGenerators;
 
-  public ParamProvider(ParamGenerator<? super Object>[] paramGenerators) {
+  @SafeVarargs
+  public ParamProvider(ParamGenerator<? super Object>... paramGenerators) {
     this.paramGenerators = paramGenerators;
   }
 
@@ -32,7 +33,8 @@ public abstract class ParamProvider implements AutoCloseable {
   public static class Suggested extends ParamProvider {
     protected final ParamProvider prov;
 
-    public Suggested(ParamGenerator<? super Object>[] paramGenerators) {
+    @SafeVarargs
+    public Suggested(ParamGenerator<? super Object>... paramGenerators) {
       super(paramGenerators);
       prov = new Partitioned(
           paramGenerators,
@@ -132,7 +134,8 @@ public abstract class ParamProvider implements AutoCloseable {
   public static class EvenSingleParamChange extends ParamProvider {
     public final boolean completeWhenAllCycledAtLeastOnce;
 
-    public EvenSingleParamChange(ParamGenerator<? super Object>[] paramGenerators) {
+    @SafeVarargs
+    public EvenSingleParamChange(ParamGenerator<? super Object>... paramGenerators) {
       this(paramGenerators, true);
     }
 
@@ -182,7 +185,8 @@ public abstract class ParamProvider implements AutoCloseable {
   }
 
   public static class AllPermutations extends ParamProvider {
-    public AllPermutations(ParamGenerator<? super Object>[] paramGenerators) {
+    @SafeVarargs
+    public AllPermutations(ParamGenerator<? super Object>... paramGenerators) {
       super(paramGenerators);
     }
 
@@ -190,7 +194,7 @@ public abstract class ParamProvider implements AutoCloseable {
     public Iterator<Object[]> iterator() { return stream().iterator(); }
 
     public Stream<Object[]> stream() {
-      Stream<Object[]> ret = Stream.empty();
+      Stream<Object[]> ret = Stream.of(new Object[][]{ new Object[paramGenerators.length] });
       for (int i = 0; i < paramGenerators.length; i++) {
         if (paramGenerators[i].isInfinite())
           throw new IllegalStateException("Cannot have infinite generator for all permutations");
@@ -199,8 +203,9 @@ public abstract class ParamProvider implements AutoCloseable {
           Stream<?> paramStream = StreamSupport.stream(Spliterators.spliteratorUnknownSize(
               paramGenerators[index].iterator(), Spliterator.ORDERED), false);
           return paramStream.map(param -> {
-            arr[index] = param;
-            return arr;
+            Object[] newArr = Arrays.copyOf(arr, arr.length);
+            newArr[index] = param;
+            return newArr;
           });
         });
       }
@@ -213,7 +218,8 @@ public abstract class ParamProvider implements AutoCloseable {
     public final int hashSetMaxBeforeReset;
     public final int maxDupeGenBeforeQuit;
 
-    public RandomSingleParamChange(ParamGenerator<? super Object>[] paramGenerators) {
+    @SafeVarargs
+    public RandomSingleParamChange(ParamGenerator<? super Object>... paramGenerators) {
       this(paramGenerators, new Random(), 20000, 200);
     }
 

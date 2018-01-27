@@ -1,10 +1,15 @@
 package jwp.fuzz;
 
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.*;
 
 public class ClassBranchAdapter extends ClassVisitor {
+
+  public static byte[] transform(byte[] origBytes) {
+    ClassReader reader = new ClassReader(origBytes);
+    ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
+    reader.accept(new ClassBranchAdapter(BranchTracker.refs, writer), 0);
+    return writer.toByteArray();
+  }
 
   private final MethodBranchAdapter.MethodRefs refs;
   private String className;

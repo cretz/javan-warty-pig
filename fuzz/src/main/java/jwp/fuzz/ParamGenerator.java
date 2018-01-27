@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.*;
 
 public interface ParamGenerator<T> extends AutoCloseable {
@@ -43,41 +44,40 @@ public interface ParamGenerator<T> extends AutoCloseable {
     };
   }
 
-  static ParamGenerator<?> suggested(Class<?> cls) {
+  static ParamGenerator<? super Object> suggestedFixed(Class<?> cls) {
     if (cls == Boolean.TYPE) return of(true, false);
     if (cls == Boolean.class) return of(null, true, false);
-    if (cls == Byte.TYPE) return of(interestingBytes());
-    if (cls == Byte.class) return of(Stream.concat(Stream.of((Integer) null), interestingBytes().boxed()));
-    if (cls == Short.TYPE) return of(interestingShorts());
-    if (cls == Short.class) return of(Stream.concat(Stream.of((Integer) null), interestingShorts().boxed()));
-    if (cls == Integer.TYPE) return of(interestingInts());
-    if (cls == Integer.class) return of(Stream.concat(Stream.of((Integer) null), interestingInts().boxed()));
-    if (cls == Long.TYPE) return of(interestingLongs());
-    if (cls == Long.class) return of(Stream.concat(Stream.of((Long) null), interestingLongs().boxed()));
-    if (cls == Float.TYPE) return of(interestingFloats());
-    if (cls == Float.class) return of(Stream.concat(Stream.of((Float) null), interestingFloats().boxed()));
-    if (cls == Double.TYPE) return of(interestingDoubles());
-    if (cls == Double.class) return of(Stream.concat(Stream.of((Double) null), interestingDoubles().boxed()));
+    if (cls == Byte.TYPE) return ofFixed(ParamGenerator::interestingBytes);
+    if (cls == Byte.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingBytes().boxed()));
+    if (cls == Short.TYPE) return ofFixed(ParamGenerator::interestingShorts);
+    if (cls == Short.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingShorts().boxed()));
+    if (cls == Integer.TYPE) return ofFixed(ParamGenerator::interestingInts);
+    if (cls == Integer.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingInts().boxed()));
+    if (cls == Long.TYPE) return ofFixed(ParamGenerator::interestingLongs);
+    if (cls == Long.class) return ofFixed(() -> Stream.concat(Stream.of((Long) null), interestingLongs().boxed()));
+    if (cls == Float.TYPE) return ofFixed(ParamGenerator::interestingFloats);
+    if (cls == Float.class) return ofFixed(() -> Stream.concat(Stream.of((Float) null), interestingFloats().boxed()));
+    if (cls == Double.TYPE) return ofFixed(ParamGenerator::interestingDoubles);
+    if (cls == Double.class)
+      return ofFixed(() -> Stream.concat(Stream.of((Double) null), interestingDoubles().boxed()));
     if (cls == Character.TYPE) throw new UnsupportedOperationException("TODO");
     if (cls == Character.class) throw new UnsupportedOperationException("TODO");
     throw new IllegalArgumentException("No suggested generator for " + cls);
   }
 
-  static <T, S extends BaseStream<T, S>> ParamGenerator<T> ofFixed(BaseStream<T, S> stream) {
+  static <T> ParamGenerator<T> ofFixed(Supplier<BaseStream> streamSupplier) {
     return new ParamGenerator<T>() {
       @Override
-      public Iterator<T> iterator() { return stream.iterator(); }
+      @SuppressWarnings("unchecked")
+      public Iterator<T> iterator() { return streamSupplier.get().iterator(); }
 
       @Override
       public boolean isInfinite() { return false; }
-
-      @Override
-      public void close() { stream.close(); }
     };
   }
 
   @SafeVarargs
-  static <T> ParamGenerator<T> of(T... items) { return ofFixed(Stream.of(items)); }
+  static <T> ParamGenerator<T> of(T... items) { return ofFixed(() -> Stream.of(items)); }
 
   static IntStream interestingBytes() {
     return IntStream.concat(

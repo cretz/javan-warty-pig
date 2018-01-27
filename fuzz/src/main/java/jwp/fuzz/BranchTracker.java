@@ -2,8 +2,11 @@ package jwp.fuzz;
 
 import org.objectweb.asm.Opcodes;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -14,27 +17,32 @@ public class BranchTracker {
   public static final MethodBranchAdapter.MethodRefs refs;
 
   static {
-    try {
-      Class<?> cls = BranchTracker.class;
-      refs = new MethodBranchAdapter.MethodRefs(
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("ifZeroCheck", int.class, int.class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("ifIntCheck", int.class, int.class, int.class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("ifObjCheck", Object.class, Object.class, int.class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("ifNullCheck", Object.class, int.class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("tableSwitchCheck", int.class, int.class, int.class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("lookupSwitchCheck", int.class, int[].class, int.class)),
-          new MethodBranchAdapter.MethodRef(
-              cls.getDeclaredMethod("catchCheck", Throwable.class, int.class))
-      );
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e);
+    Map<String, Integer> methodNamesToOpcodes = new HashMap<>();
+    methodNamesToOpcodes.put("ifEqCheck", Opcodes.IFEQ);
+    methodNamesToOpcodes.put("ifNeCheck", Opcodes.IFNE);
+    methodNamesToOpcodes.put("ifLtCheck", Opcodes.IFLT);
+    methodNamesToOpcodes.put("ifLeCheck", Opcodes.IFLE);
+    methodNamesToOpcodes.put("ifGtCheck", Opcodes.IFGT);
+    methodNamesToOpcodes.put("ifGeCheck", Opcodes.IFGE);
+    methodNamesToOpcodes.put("ifIcmpEqCheck", Opcodes.IF_ICMPEQ);
+    methodNamesToOpcodes.put("ifIcmpNeCheck", Opcodes.IF_ICMPNE);
+    methodNamesToOpcodes.put("ifIcmpLtCheck", Opcodes.IF_ICMPLT);
+    methodNamesToOpcodes.put("ifIcmpLeCheck", Opcodes.IF_ICMPLE);
+    methodNamesToOpcodes.put("ifIcmpGtCheck", Opcodes.IF_ICMPGT);
+    methodNamesToOpcodes.put("ifIcmpGeCheck", Opcodes.IF_ICMPGE);
+    methodNamesToOpcodes.put("ifAcmpEqCheck", Opcodes.IF_ACMPEQ);
+    methodNamesToOpcodes.put("ifAcmpNeCheck", Opcodes.IF_ACMPNE);
+    methodNamesToOpcodes.put("ifNullCheck", Opcodes.IFNULL);
+    methodNamesToOpcodes.put("ifNonNullCheck", Opcodes.IFNONNULL);
+    methodNamesToOpcodes.put("tableSwitchCheck", Opcodes.TABLESWITCH);
+    methodNamesToOpcodes.put("lookupSwitchCheck", Opcodes.LOOKUPSWITCH);
+    methodNamesToOpcodes.put("catchCheck", Opcodes.ATHROW);
+    MethodBranchAdapter.MethodRefs.Builder builder = MethodBranchAdapter.MethodRefs.builder();
+    for (Method method : BranchTracker.class.getDeclaredMethods()) {
+      Integer opcode = methodNamesToOpcodes.get(method.getName());
+      if (opcode != null) builder.set(opcode, new MethodBranchAdapter.MethodRef(method));
     }
+    refs = builder.build();
   }
 
   public static void beginTrackingForThread(Thread thread) {
@@ -51,72 +59,68 @@ public class BranchTracker {
     if (hits != null) hits.addHit(branchHash);
   }
 
-  public static void ifZeroCheck(int value, int opcode, int branchHash) {
-    switch (opcode) {
-      case Opcodes.IFEQ:
-        if (value == 0) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFNE:
-        if (value != 0) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFLT:
-        if (value < 0) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFLE:
-        if (value <= 0) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFGT:
-        if (value > 0) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFGE:
-        if (value >= 0) addBranchHash(branchHash);
-        break;
-    }
+  public static void ifEqCheck(int value, int branchHash) {
+    if (value == 0) addBranchHash(branchHash);
   }
 
-  public static void ifIntCheck(int lvalue, int rvalue, int opcode, int branchHash) {
-    switch (opcode) {
-      case Opcodes.IF_ICMPEQ:
-        if (lvalue == rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ICMPNE:
-        if (lvalue != rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ICMPLT:
-        if (lvalue < rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ICMPLE:
-        if (lvalue <= rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ICMPGT:
-        if (lvalue > rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ICMPGE:
-        if (lvalue >= rvalue) addBranchHash(branchHash);
-        break;
-    }
+  public static void ifNeCheck(int value, int branchHash) {
+    if (value != 0) addBranchHash(branchHash);
   }
 
-  public static void ifObjCheck(Object lvalue, Object rvalue, int opcode, int branchHash) {
-    switch (opcode) {
-      case Opcodes.IF_ACMPEQ:
-        if (lvalue == rvalue) addBranchHash(branchHash);
-        break;
-      case Opcodes.IF_ACMPNE:
-        if (lvalue != rvalue) addBranchHash(branchHash);
-        break;
-    }
+  public static void ifLtCheck(int value, int branchHash) {
+    if (value < 0) addBranchHash(branchHash);
   }
 
-  public static void ifNullCheck(Object value, int opcode, int branchHash) {
-    switch (opcode) {
-      case Opcodes.IFNULL:
-        if (value == null) addBranchHash(branchHash);
-        break;
-      case Opcodes.IFNONNULL:
-        if (value != null) addBranchHash(branchHash);
-        break;
-    }
+  public static void ifLeCheck(int value, int branchHash) {
+    if (value <= 0) addBranchHash(branchHash);
+  }
+
+  public static void ifGtCheck(int value, int branchHash) {
+    if (value > 0) addBranchHash(branchHash);
+  }
+
+  public static void ifGeCheck(int value, int branchHash) {
+    if (value >= 0) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpEqCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue == rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpNeCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue != rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpLtCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue < rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpLeCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue <= rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpGtCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue > rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifIcmpGeCheck(int lvalue, int rvalue, int branchHash) {
+    if (lvalue >= rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifAcmpEqCheck(Object lvalue, Object rvalue, int branchHash) {
+    if (lvalue == rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifAcmpNeCheck(Object lvalue, Object rvalue, int branchHash) {
+    if (lvalue == rvalue) addBranchHash(branchHash);
+  }
+
+  public static void ifNullCheck(Object value, int branchHash) {
+    if (value == null) addBranchHash(branchHash);
+  }
+
+  public static void ifNonNullCheck(Object value, int branchHash) {
+    if (value != null) addBranchHash(branchHash);
   }
 
   public static void tableSwitchCheck(int value, int min, int max, int branchHash) {

@@ -18,9 +18,9 @@ public class Fuzzer {
     this.config = config;
   }
 
-  void fuzz() throws Throwable { fuzz(new AtomicBoolean()); }
+  public void fuzz() throws Throwable { fuzz(new AtomicBoolean()); }
 
-  void fuzz(AtomicBoolean stopper) throws Throwable {
+  public void fuzz(AtomicBoolean stopper) throws Throwable {
     try {
       // Go over every param set, invoking
       Iterator<Object[]> paramIter = config.params.iterator();
@@ -32,12 +32,15 @@ public class Fuzzer {
         Throwable stopEx = stopExRef.get();
         if (stopEx != null) throw stopEx;
         // Exec and grab future
-        CompletableFuture<ExecutionResult> fut = config.invoker.invoke(invokerConfig, paramIter.next());
+        Object[] params = paramIter.next();
+        CompletableFuture<ExecutionResult> fut = config.invoker.invoke(invokerConfig, params);
         // As a special case for the first run, we wait for completion and fail if it's the wrong method type
         if (first) {
           first = false;
           ExecutionResult firstResult = fut.get();
-          if (firstResult.exception instanceof WrongMethodTypeException) throw firstResult.exception;
+          if (firstResult.exception instanceof WrongMethodTypeException ||
+              firstResult.exception instanceof ClassCastException)
+            throw new FuzzException.FirstRunFailed(firstResult.exception);
         }
         if (config.onSubmit != null) {
           fut = config.onSubmit.apply(config, fut);
@@ -56,6 +59,8 @@ public class Fuzzer {
   }
 
   public static class Config {
+    public static Builder builder() { return new Builder(); }
+
     public final Method method;
     public final ParamProvider params;
     public final BiFunction<Config, CompletableFuture<ExecutionResult>, CompletableFuture<ExecutionResult>> onSubmit;
@@ -87,7 +92,7 @@ public class Fuzzer {
       }
 
       public BiFunction<Config, CompletableFuture<ExecutionResult>, CompletableFuture<ExecutionResult>> onSubmit;
-      public Builder method(BiFunction<Config, CompletableFuture<ExecutionResult>,
+      public Builder onSubmit(BiFunction<Config, CompletableFuture<ExecutionResult>,
           CompletableFuture<ExecutionResult>> onSubmit) {
         this.onSubmit = onSubmit;
         return this;
@@ -125,6 +130,16 @@ public class Fuzzer {
             stopOnFutureFailure
         );
       }
+    }
+  }
+
+  public static class FuzzException extends RuntimeException {
+    public FuzzException(String msg) { super(msg); }
+    public FuzzException(String msg, Throwable cause) { super(msg, cause); }
+    public FuzzException(Throwable cause) { super(cause); }
+
+    public static class FirstRunFailed extends FuzzException {
+      public FirstRunFailed(Throwable cause) { super(cause); }
     }
   }
 }
