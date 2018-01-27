@@ -1,17 +1,21 @@
 package jwp.fuzz;
 
-import java.io.Closeable;
 import java.util.Iterator;
 import java.util.stream.*;
 
-public interface ParamGenerator<T> extends Closeable {
+public interface ParamGenerator<T> extends AutoCloseable {
 
+  // Guaranteed to be iterated in a single thread.
   Iterator<T> iterator();
 
-  @Override
-  default void close() { }
+  boolean isInfinite();
 
-  default void onComplete(ExecutionResult result) { }
+  // Note, myParam is not necessarily the same type as result.params[myParamIndex] because
+  // it may be mapped.
+  default void onComplete(ExecutionResult result, int myParamIndex, T myParam) { }
+
+  @Override
+  default void close() throws Exception { }
 
   static ParamGenerator<?> suggested(Class<?> cls) {
     if (cls == Boolean.TYPE) return of(true, false);
@@ -33,10 +37,13 @@ public interface ParamGenerator<T> extends Closeable {
     throw new IllegalArgumentException("No suggested generator for " + cls);
   }
 
-  static <T, S extends BaseStream<T, S>> ParamGenerator<T> of(BaseStream<T, S> stream) {
+  static <T, S extends BaseStream<T, S>> ParamGenerator<T> ofFixed(BaseStream<T, S> stream) {
     return new ParamGenerator<T>() {
       @Override
       public Iterator<T> iterator() { return stream.iterator(); }
+
+      @Override
+      public boolean isInfinite() { return false; }
 
       @Override
       public void close() { stream.close(); }
@@ -44,7 +51,7 @@ public interface ParamGenerator<T> extends Closeable {
   }
 
   @SafeVarargs
-  static <T> ParamGenerator<T> of(T... items) { return of(Stream.of(items)); }
+  static <T> ParamGenerator<T> of(T... items) { return ofFixed(Stream.of(items)); }
 
   static IntStream interestingBytes() {
     return IntStream.concat(

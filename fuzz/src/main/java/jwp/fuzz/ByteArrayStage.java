@@ -9,17 +9,17 @@ import static jwp.fuzz.Util.*;
 
 // Implementations should not keep state per apply. These are instantiated once per entire run, not per buf.
 @FunctionalInterface
-public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Config, byte[], Stream<byte[]>> {
+public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte[], Stream<byte[]>> {
 
   // This should not mutate buf. Only copies are returned.
-  Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf);
+  Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf);
 
   class FlipBits implements ByteArrayStage {
     protected final int consecutiveToFlip;
     public FlipBits(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, (buf.length * 8) - (consecutiveToFlip - 1)).boxed().map(bitIndex ->
           withCopiedBytes(buf, bytes -> {
             for (int i = 0; i < consecutiveToFlip; i++) flipBit(bytes, bitIndex + i);
@@ -33,7 +33,7 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     public FlipBytes(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length - (consecutiveToFlip - 1)).boxed().map(byteIndex ->
           withCopiedBytes(buf, bytes -> {
             for (int i = 0; i < consecutiveToFlip; i++) bytes[byteIndex + i] = (byte) ~bytes[byteIndex + i];
@@ -43,16 +43,16 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
   }
 
   abstract class ArithBase implements ByteArrayStage {
-    protected static Stream<Integer> arithVals(ByteArrayParamGenerator.Config config) {
-      return IntStream.rangeClosed(-config.arithMax, config.arithMax).boxed();
+    protected static Stream<Integer> arithVals(ByteArrayParamGenerator gen) {
+      return IntStream.rangeClosed(-gen.config.arithMax, gen.config.arithMax).boxed();
     }
   }
 
   class Arith8 extends ArithBase {
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
-          arithVals(config).map(arithVal -> {
+          arithVals(gen).map(arithVal -> {
             byte newByte = (byte) (buf[byteIndex] + arithVal);
             if (couldHaveBitFlippedTo(buf[byteIndex], newByte)) return null;
             return withCopiedBytes(buf, bytes -> bytes[byteIndex] = newByte);
@@ -67,10 +67,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length - 1).boxed().flatMap(byteIndex -> {
         short origLe = getShortLe(buf, byteIndex), origBe = getShortBe(buf, byteIndex);
-        return arithVals(config).flatMap(arithVal -> {
+        return arithVals(gen).flatMap(arithVal -> {
           short newLe = (short) (origLe + arithVal), newBe = (short) (origBe + arithVal);
           byte[] leBytes = null, beBytes = null;
           if (affectsBothBytes(origLe, newLe) && !couldHaveBitFlippedTo(origLe, newLe))
@@ -92,10 +92,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length - 3).boxed().flatMap(byteIndex -> {
         int origLe = getIntLe(buf, byteIndex), origBe = getIntBe(buf, byteIndex);
-        return arithVals(config).flatMap(arithVal -> {
+        return arithVals(gen).flatMap(arithVal -> {
           int newLe = origLe + arithVal, newBe = origBe + arithVal;
           byte[] leBytes = null, beBytes = null;
           if (affectsMoreThanTwoBytes(origLe, newLe) && !couldHaveBitFlippedTo(origLe, newLe))
@@ -115,17 +115,17 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
   }
 
   class Interesting8 extends InterestingBase {
-    protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, byte origByte, byte newByte) {
-      return newByte >= origByte - config.arithMax && newByte <= origByte + config.arithMax;
+    protected static boolean couldBeArith(ByteArrayParamGenerator gen, byte origByte, byte newByte) {
+      return newByte >= origByte - gen.config.arithMax && newByte <= origByte + gen.config.arithMax;
     }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length).boxed().flatMap(byteIndex -> {
         byte origByte = buf[byteIndex];
         return ParamGenerator.interestingBytes().boxed().map(newInt -> {
           byte newByte = newInt.byteValue();
-          if (!couldBeArith(config, origByte, newByte) && !couldHaveBitFlippedTo(origByte, newByte))
+          if (!couldBeArith(gen, origByte, newByte) && !couldHaveBitFlippedTo(origByte, newByte))
             return withCopiedBytes(buf, arr -> arr[byteIndex] = newByte);
           return null;
         }).filter(Objects::nonNull);
@@ -134,10 +134,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
   }
 
   class Interesting16 extends InterestingBase {
-    protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, short origShort, short newShort) {
-      if (newShort >= origShort - config.arithMax && newShort <= origShort + config.arithMax) return true;
+    protected static boolean couldBeArith(ByteArrayParamGenerator gen, short origShort, short newShort) {
+      if (newShort >= origShort - gen.config.arithMax && newShort <= origShort + gen.config.arithMax) return true;
       short origBe = endianSwapped(origShort);
-      return newShort >= origBe - config.arithMax && newShort <= origBe + config.arithMax;
+      return newShort >= origBe - gen.config.arithMax && newShort <= origBe + gen.config.arithMax;
     }
 
     protected static boolean couldBeInteresting8(short origShort, short newShort) {
@@ -149,16 +149,16 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length - 1).boxed().flatMap(byteIndex -> {
         short origLe = getShortLe(buf, byteIndex), origBe = getShortBe(buf, byteIndex);
         return ParamGenerator.interestingShorts().boxed().flatMap(newInt -> {
           short newShortLe = newInt.shortValue(), newShortBe = endianSwapped(newInt.shortValue());
           byte[] leBytes = null, beBytes = null;
-          if (!couldBeArith(config, origLe, newShortLe) && !couldBeInteresting8(origLe, newShortLe) &&
+          if (!couldBeArith(gen, origLe, newShortLe) && !couldBeInteresting8(origLe, newShortLe) &&
               !couldHaveBitFlippedTo(origLe, newShortLe))
             leBytes = withCopiedBytes(buf, arr -> putShortLe(arr, byteIndex, newShortLe));
-          if (!couldBeArith(config, origBe, newShortBe) && !couldBeInteresting8(origBe, newShortBe) &&
+          if (!couldBeArith(gen, origBe, newShortBe) && !couldBeInteresting8(origBe, newShortBe) &&
               !couldHaveBitFlippedTo(origLe, newShortBe))
             beBytes = withCopiedBytes(buf, arr -> putShortBe(arr, byteIndex, newShortLe));
           return streamOfNotNull(leBytes, beBytes);
@@ -168,29 +168,27 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
   }
 
   class Interesting32 extends InterestingBase {
-    protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, byte[] origArr, byte[] newArr) {
+    protected static boolean couldBeArith(ByteArrayParamGenerator gen, byte[] origArr, byte[] newArr) {
       for (int i = 0; i < 4; i++) {
-        if (arithByteCheck(config, origArr, newArr, i)) return true;
-        if (i < 3 && arithShortCheck(config, origArr, newArr, i)) return true;
+        if (arithByteCheck(gen, origArr, newArr, i)) return true;
+        if (i < 3 && arithShortCheck(gen, origArr, newArr, i)) return true;
       }
       return false;
     }
 
-    protected static boolean arithByteCheck(ByteArrayParamGenerator.Config config,
-        byte[] origArr, byte[] newArr, int index) {
+    protected static boolean arithByteCheck(ByteArrayParamGenerator gen, byte[] origArr, byte[] newArr, int index) {
       for (int i = 0; i < 4; i++) {
         int diff = newArr[i] - origArr[i];
-        if (diff != 0 && (i != index || diff < -config.arithMax || diff > config.arithMax)) return false;
+        if (diff != 0 && (i != index || diff < -gen.config.arithMax || diff > gen.config.arithMax)) return false;
       }
       return true;
     }
 
-    protected static boolean arithShortCheck(ByteArrayParamGenerator.Config config,
-        byte[] origArr, byte[] newArr, int index) {
+    protected static boolean arithShortCheck(ByteArrayParamGenerator gen, byte[] origArr, byte[] newArr, int index) {
       for (int i = 0; i < 4; i++) {
         if (origArr[i] != newArr[i] && i != index + 1) {
           int diff = getShortLe(newArr, i) - getShortLe(origArr, i);
-          if (diff < -config.arithMax || diff > config.arithMax) return false;
+          if (diff < -gen.config.arithMax || diff > gen.config.arithMax) return false;
         }
       }
       return true;
@@ -232,7 +230,7 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     }
 
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       return IntStream.range(0, buf.length - 3).boxed().flatMap(byteIndex -> {
         int origLe = getIntLe(buf, byteIndex), origBe = getIntLe(buf, byteIndex);
         byte[] origLeArr = toByteArray(origLe), origBeArr = toByteArray(origBe);
@@ -240,10 +238,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
           int newBe = endianSwapped(newLe);
           byte[] newLeArr = toByteArray(newLe), newBeArr = toByteArray(newBe);
           byte[] leBytes = null, beBytes = null;
-          if (!couldBeArith(config, origLeArr, newLeArr) && !couldBeInteresting8(origLeArr, newLeArr) &&
+          if (!couldBeArith(gen, origLeArr, newLeArr) && !couldBeInteresting8(origLeArr, newLeArr) &&
               !couldBeInteresting16(origLeArr, newLeArr) && !couldHaveBitFlippedTo(origLe, newLe))
             leBytes = withCopiedBytes(buf, arr -> putIntLe(arr, byteIndex, newLe));
-          if (!couldBeArith(config, origBeArr, newBeArr) && !couldBeInteresting8(origLeArr, newBeArr) &&
+          if (!couldBeArith(gen, origBeArr, newBeArr) && !couldBeInteresting8(origLeArr, newBeArr) &&
               !couldBeInteresting16(origLeArr, newBeArr) && !couldHaveBitFlippedTo(origLe, newBe))
             beBytes = withCopiedBytes(buf, arr -> putIntBe(arr, byteIndex, newBe));
           return streamOfNotNull(leBytes, beBytes);
@@ -252,23 +250,50 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Confi
     }
   }
 
-  class Dictionary implements ByteArrayStage {
-    protected final List<byte[]> sortedDictionary;
-
-    public Dictionary(List<byte[]> dictionary) {
-      List<byte[]> newDictionary = new ArrayList<>(dictionary);
-      newDictionary.sort(Comparator.comparingInt(b -> b.length));
-      sortedDictionary = Collections.unmodifiableList(newDictionary);
-    }
-
+  class OverwriteWithDictionary implements ByteArrayStage {
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       // To match AFL, we'll put different dictionary entries at an index before going on to the next index
-      if (sortedDictionary.isEmpty()) return Stream.empty();
+      if (gen.config.dictionary.isEmpty()) return Stream.empty();
       return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
-          sortedDictionary.stream().filter(d -> byteIndex + d.length < buf.length).map(entry ->
+          gen.config.dictionary.stream().filter(d -> byteIndex + d.length < buf.length).map(entry ->
               withCopiedBytes(buf, arr -> System.arraycopy(entry, 0, arr, byteIndex, entry.length))
           )
+      );
+    }
+  }
+
+  class InsertWithDictionary implements ByteArrayStage {
+    @Override
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
+      if (gen.config.dictionary.isEmpty()) return Stream.empty();
+      return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
+          gen.config.dictionary.stream().filter(d -> buf.length + d.length <= gen.config.maxInput).map(entry -> {
+            byte[] newArr = new byte[buf.length + entry.length];
+            System.arraycopy(buf, 0, newArr, 0, byteIndex);
+            System.arraycopy(entry, 0, newArr, byteIndex, entry.length);
+            System.arraycopy(buf, byteIndex, newArr, byteIndex + entry.length, buf.length - byteIndex);
+            return newArr;
+          })
+      );
+    }
+  }
+
+  class RandomHavoc implements ByteArrayStage {
+    protected final RandomHavocTweak[] tweaks;
+
+    public RandomHavoc(RandomHavocTweak[] tweaks) { this.tweaks = tweaks; }
+
+    @Override
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
+      // TODO: base havoc cycles on perf
+      return IntStream.range(0, gen.config.havocCycles).boxed().map(havocCycle ->
+          withCopiedBytes(buf, bytes -> {
+            int tweakCount = (int) Math.pow(2, 1 + gen.config.random.nextInt(gen.config.havocStackPower));
+            for (int i = 0; i < tweakCount; i++) {
+              bytes = tweaks[gen.config.random.nextInt(tweaks.length)].apply(gen, bytes);
+            }
+          })
       );
     }
   }

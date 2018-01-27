@@ -1,14 +1,15 @@
 package jwp.fuzz;
 
-import java.util.Arrays;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public class Util {
   public static byte byte0(short val) { return (byte) val; }
@@ -165,6 +166,12 @@ public class Util {
     return ret;
   }
 
+  public static <T> Stream<T> streamCharacteristics(Stream<T> stream, IntConsumer consumer) {
+    Spliterator<T> spliterator = stream.spliterator();
+    consumer.accept(spliterator.characteristics());
+    return StreamSupport.stream(spliterator, stream.isParallel());
+  }
+
   public static byte[] toByteArray(short val) {
     return new byte[] { byte0(val), byte1(val) };
   }
@@ -194,5 +201,30 @@ public class Util {
 
     @Override
     public void execute(Runnable command) { getRejectedExecutionHandler().rejectedExecution(command, this); }
+  }
+
+  public static abstract class NullMeansCompleteIterator<T> implements Iterator<T> {
+    protected T prev;
+    protected boolean usePrev = false;
+    protected boolean finished = false;
+
+    protected abstract T doNext();
+
+    @Override
+    public boolean hasNext() { return !finished && next(true) != null; }
+
+    @Override
+    public T next() {
+      if (finished) throw new NoSuchElementException();
+      return next(false);
+    }
+
+    protected T next(boolean canUsePrev) {
+      if (canUsePrev && usePrev) return prev;
+      usePrev = true;
+      prev = doNext();
+      if (prev == null) finished = true;
+      return prev;
+    }
   }
 }

@@ -1,32 +1,78 @@
 package jwp.fuzz;
 
-import java.io.Closeable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
   public final Config config;
 
+  protected final HashCache seenBranchesCache;
+  protected final InputQueue inputQueue;
+  protected final ByteArrayStage[] stages;
+
   protected final Object varMutex = new Object();
-  protected long startMs;
-  protected long queueCycle;
+  protected long startMs = -1L;
+  protected long queueCycle = 0;
+  protected byte[] lastEntry;
 
   public ByteArrayParamGenerator(Config config) {
     this.config = config;
+    seenBranchesCache = config.hashCacheCreator.apply(config);
+    inputQueue = config.inputQueueCreator.apply(config);
+    stages = config.stagesCreator.apply(config);
   }
 
   @Override
-  public Iterator<byte[]> iterator() {
-    return null;
+  public Iterator<byte[]> iterator() { return stream().iterator(); }
+
+  protected Stream<byte[]> stream() {
+    if (!config.reuseLastStageAsInfinite) throw new RuntimeException("Only last-stage-infinite is supported for now");
+    return Stream.generate(() -> {
+      // Set the start time and safely grab the last entry
+      byte[] lastEntry;
+      synchronized (varMutex) {
+        if (startMs < 0) startMs = System.currentTimeMillis();
+        lastEntry = this.lastEntry;
+      }
+      // Try the input queue first. If nothing, try running the infinite stage with the last entry. If there is no
+      // last entry, we are at the beginning and we run with the initial values.
+      byte[] entry = inputQueue.dequeue();
+      if (entry == null && lastEntry != null) return stages[stages.length - 1].apply(this, lastEntry);
+      Stream<byte[]> entryStream = entry == null ? config.initialValues.stream() : Stream.of(entry);
+      return entryStream.flatMap(buf -> {
+        // Set the last entry and update the cycle count
+        synchronized (varMutex) {
+          this.lastEntry = buf;
+          queueCycle++;
+        }
+        // Run each stage for this buf
+        return Arrays.stream(stages).flatMap(stage -> stage.apply(this, buf));
+      });
+    }).flatMap(Function.identity());
   }
 
   @Override
-  public void close() {
+  public boolean isInfinite() { return true; }
 
+  @Override
+  public void onComplete(ExecutionResult result, int myParamIndex, byte[] myParam) {
+    // If it's a unique path, then our param goes to the input queue if it's not null
+    if (myParam == null) return;
+    if (seenBranchesCache.checkUniqueAndStore(config.hasher.hash(result.branchHits))) {
+      inputQueue.enqueue(new TestCase(myParam, result.branchHits, result.nanoTime));
+    }
+  }
+
+  @Override
+  public void close() throws Exception {
+    try {
+      seenBranchesCache.close();
+    } finally {
+      inputQueue.close();
+    }
   }
 
   public int randomBlockLength(int limit) {
@@ -66,6 +112,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     public final Function<Config, ByteArrayStage[]> stagesCreator;
     public final Function<Config, RandomHavocTweak[]> havocTweaksCreator;
     public final Random random;
+    public final boolean reuseLastStageAsInfinite;
     public final int arithMax;
     public final int havocCycles;
     public final int havocStackPower;
@@ -78,16 +125,20 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     public Config(List<byte[]> initialValues, List<byte[]> dictionary, BranchHit.Hasher hasher,
         Function<Config, HashCache> hashCacheCreator, Function<Config, InputQueue> inputQueueCreator,
         Function<Config, ByteArrayStage[]> stagesCreator, Function<Config, RandomHavocTweak[]> havocTweaksCreator,
-        Random random, int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall, int havocBlockMedium,
+        Random random, boolean reuseLastStageAsInfinite,
+        int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall, int havocBlockMedium,
         int havocBlockLarge, int havocBlockXLarge, int maxInput) {
       this.initialValues = Objects.requireNonNull(initialValues);
-      this.dictionary = Objects.requireNonNull(dictionary);
+      // Copy the dictionary and sort it smallest first
+      this.dictionary = new ArrayList<>(Objects.requireNonNull(dictionary));
+      this.dictionary.sort(Comparator.comparingInt(b -> b.length));
       this.hasher = Objects.requireNonNull(hasher);
       this.hashCacheCreator = Objects.requireNonNull(hashCacheCreator);
       this.inputQueueCreator = Objects.requireNonNull(inputQueueCreator);
       this.stagesCreator = Objects.requireNonNull(stagesCreator);
       this.havocTweaksCreator = Objects.requireNonNull(havocTweaksCreator);
       this.random = Objects.requireNonNull(random);
+      this.reuseLastStageAsInfinite = reuseLastStageAsInfinite;
       this.arithMax = arithMax;
       this.havocCycles = havocCycles;
       this.havocStackPower = havocStackPower;
@@ -169,7 +220,10 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             new ByteArrayStage.Interesting8(),
             new ByteArrayStage.Interesting16(),
             new ByteArrayStage.Interesting32(),
-            new ByteArrayStage.Dictionary(config.dictionary)
+            new ByteArrayStage.OverwriteWithDictionary(),
+            new ByteArrayStage.InsertWithDictionary(),
+            // TODO: auto extras
+            new ByteArrayStage.RandomHavoc(config.havocTweaksCreator.apply(config))
         };
       }
 
@@ -207,6 +261,13 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       }
       public Random randomDefault() { return new Random(); }
 
+      public Boolean reuseLastStageAsInfinite;
+      public Builder reuseLastStageAsInfinite(Boolean reuseLastStageAsInfinite) {
+        this.reuseLastStageAsInfinite = reuseLastStageAsInfinite;
+        return this;
+      }
+      public boolean reuseLastStageAsInfiniteDefault() { return true; }
+
       public Config build() {
         return new Config(
             initialValues == null ? initialValuesDefault() : initialValues,
@@ -217,6 +278,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             stagesCreator == null ? stagesCreatorDefault() : stagesCreator,
             havocTweaksCreator == null ? havocTweaksCreatorDefault() : havocTweaksCreator,
             random == null ? randomDefault() : random,
+            reuseLastStageAsInfinite == null ? reuseLastStageAsInfiniteDefault() : reuseLastStageAsInfinite,
             arithMax,
             havocCycles,
             havocStackPower,
@@ -230,7 +292,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     }
   }
 
-  public interface HashCache extends Closeable {
+  public interface HashCache extends AutoCloseable {
     // May be called by multiple threads
     boolean checkUniqueAndStore(int hash);
 
@@ -253,7 +315,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     }
   }
 
-  public interface InputQueue extends Closeable {
+  public interface InputQueue extends AutoCloseable {
     // Must be thread safe and never block. Should be unbounded, but throw in worst-case scenario.
     void enqueue(TestCase entry);
 
@@ -334,29 +396,6 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       this.branchHits = branchHits;
       this.nanoTime = nanoTime;
       score = branchHits == null ? 0 : bytes.length * nanoTime;
-    }
-  }
-
-  public abstract static class ByteArraySpliterator extends Spliterators.AbstractSpliterator<byte[]> {
-
-    public static ByteArraySpliterator of(long est, Supplier<byte[]> supplier) {
-      return new ByteArraySpliterator(est) {
-        @Override
-        public boolean tryAdvance(Consumer<? super byte[]> action) {
-          byte[] bytes = supplier.get();
-          if (bytes == null) return false;
-          action.accept(bytes);
-          return true;
-        }
-      };
-    }
-
-    public ByteArraySpliterator(long est) {
-      this(est, Spliterator.IMMUTABLE | Spliterator.NONNULL);
-    }
-
-    public ByteArraySpliterator(long est, int additionalCharacteristics) {
-      super(est, additionalCharacteristics);
     }
   }
 }
