@@ -1,36 +1,20 @@
 package jwp.fuzz;
 
-import java.util.Arrays;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static jwp.fuzz.Util.*;
 
-// Implementations should not keep state
-public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerator.Config, byte[], Stream<byte[]>> {
-  // These are read-only, do not change
-  protected static byte[] interestingBytes;
-  protected static short[] interestingShorts;
-  static {
-    int[] ints = ParamGenerator.interestingBytes().toArray();
-    interestingBytes = new byte[ints.length];
-    for (int i = 0; i < ints.length; i++) interestingBytes[i] = (byte) ints[i];
-
-    ints = ParamGenerator.interestingShorts().toArray();
-    interestingShorts = new short[ints.length];
-    for (int i = 0; i < ints.length; i++) interestingShorts[i] = (byte) ints[i];
-  }
+// Implementations should not keep state per apply. These are instantiated once per entire run, not per buf.
+@FunctionalInterface
+public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator.Config, byte[], Stream<byte[]>> {
 
   // This should not mutate buf. Only copies are returned.
-  public abstract Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf);
+  Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf);
 
-  protected static Stream<Integer> arithVals(ByteArrayParamGenerator.Config config) {
-    return IntStream.rangeClosed(-config.arithMax, config.arithMax).boxed();
-  }
-
-  public static class FlipBits extends ByteArrayStage {
+  class FlipBits implements ByteArrayStage {
     protected final int consecutiveToFlip;
     public FlipBits(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
 
@@ -44,7 +28,7 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class FlipBytes extends ByteArrayStage {
+  class FlipBytes implements ByteArrayStage {
     protected final int consecutiveToFlip;
     public FlipBytes(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
 
@@ -58,7 +42,13 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Arith8 extends ByteArrayStage {
+  abstract class ArithBase implements ByteArrayStage {
+    protected static Stream<Integer> arithVals(ByteArrayParamGenerator.Config config) {
+      return IntStream.rangeClosed(-config.arithMax, config.arithMax).boxed();
+    }
+  }
+
+  class Arith8 extends ArithBase {
     @Override
     public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
       return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
@@ -71,7 +61,7 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Arith16 extends ByteArrayStage {
+  class Arith16 extends ArithBase {
     protected static boolean affectsBothBytes(short origShort, short newShort) {
       return byte0(origShort) != byte0(newShort) && byte1(origShort) != byte1(newShort);
     }
@@ -93,7 +83,7 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Arith32 extends ByteArrayStage {
+  class Arith32 extends ArithBase {
     protected static boolean affectsMoreThanTwoBytes(int origInt, int newInt) {
       return (byte0(origInt) == byte0(newInt) ? 0 : 1) +
           (byte1(origInt) == byte1(newInt) ? 0 : 1) +
@@ -118,7 +108,13 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Interesting8 extends ByteArrayStage {
+  abstract class InterestingBase implements ByteArrayStage {
+    // These are read-only, do not change
+    protected static byte[] interestingBytes = streamToByteArray(ParamGenerator.interestingBytes());
+    protected static short[] interestingShorts = streamToShortArray(ParamGenerator.interestingShorts());
+  }
+
+  class Interesting8 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, byte origByte, byte newByte) {
       return newByte >= origByte - config.arithMax && newByte <= origByte + config.arithMax;
     }
@@ -137,7 +133,7 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Interesting16 extends ByteArrayStage {
+  class Interesting16 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, short origShort, short newShort) {
       if (newShort >= origShort - config.arithMax && newShort <= origShort + config.arithMax) return true;
       short origBe = endianSwapped(origShort);
@@ -171,7 +167,7 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
     }
   }
 
-  public static class Interesting32 extends ByteArrayStage {
+  class Interesting32 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator.Config config, byte[] origArr, byte[] newArr) {
       for (int i = 0; i < 4; i++) {
         if (arithByteCheck(config, origArr, newArr, i)) return true;
@@ -253,6 +249,27 @@ public abstract class ByteArrayStage implements BiFunction<ByteArrayParamGenerat
           return streamOfNotNull(leBytes, beBytes);
         });
       });
+    }
+  }
+
+  class Dictionary implements ByteArrayStage {
+    protected final List<byte[]> sortedDictionary;
+
+    public Dictionary(List<byte[]> dictionary) {
+      List<byte[]> newDictionary = new ArrayList<>(dictionary);
+      newDictionary.sort(Comparator.comparingInt(b -> b.length));
+      sortedDictionary = Collections.unmodifiableList(newDictionary);
+    }
+
+    @Override
+    public Stream<byte[]> apply(ByteArrayParamGenerator.Config config, byte[] buf) {
+      // To match AFL, we'll put different dictionary entries at an index before going on to the next index
+      if (sortedDictionary.isEmpty()) return Stream.empty();
+      return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
+          sortedDictionary.stream().filter(d -> byteIndex + d.length < buf.length).map(entry ->
+              withCopiedBytes(buf, arr -> System.arraycopy(entry, 0, arr, byteIndex, entry.length))
+          )
+      );
     }
   }
 }

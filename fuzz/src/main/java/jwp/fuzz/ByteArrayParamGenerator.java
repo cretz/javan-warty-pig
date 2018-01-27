@@ -11,6 +11,10 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
   public final Config config;
 
+  protected final Object varMutex = new Object();
+  protected long startMs;
+  protected long queueCycle;
+
   public ByteArrayParamGenerator(Config config) {
     this.config = config;
   }
@@ -25,13 +29,43 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
   }
 
+  public int randomBlockLength(int limit) {
+    int rLim, minValue, maxValue;
+    synchronized (varMutex) {
+      boolean over10Min = startMs > 0 && System.currentTimeMillis() - startMs > 10 * 60 * 1000;
+      rLim = over10Min ? (int) Math.min(queueCycle, 3) : 1;
+    }
+    switch (config.random.nextInt(rLim)) {
+      case 0:
+        minValue = 1;
+        maxValue = config.havocBlockSmall;
+        break;
+      case 1:
+        minValue = config.havocBlockSmall;
+        maxValue = config.havocBlockMedium;
+        break;
+      default:
+        if (config.random.nextInt(10) == 0) {
+          minValue = config.havocBlockLarge;
+          maxValue = config.havocBlockXLarge;
+        } else {
+          minValue = config.havocBlockMedium;
+          maxValue = config.havocBlockXLarge;
+        }
+    }
+    if (minValue >= limit) minValue = 1;
+    return minValue + config.random.nextInt(Math.min(maxValue, limit) - minValue + 1);
+  }
+
   public static class Config {
     public final List<byte[]> initialValues;
     public final List<byte[]> dictionary;
     public final BranchHit.Hasher hasher;
     public final Function<Config, HashCache> hashCacheCreator;
     public final Function<Config, InputQueue> inputQueueCreator;
-    public final ByteArrayStage[] stages;
+    public final Function<Config, ByteArrayStage[]> stagesCreator;
+    public final Function<Config, RandomHavocTweak[]> havocTweaksCreator;
+    public final Random random;
     public final int arithMax;
     public final int havocCycles;
     public final int havocStackPower;
@@ -43,14 +77,17 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
     public Config(List<byte[]> initialValues, List<byte[]> dictionary, BranchHit.Hasher hasher,
         Function<Config, HashCache> hashCacheCreator, Function<Config, InputQueue> inputQueueCreator,
-        ByteArrayStage[] stages, int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall,
-        int havocBlockMedium, int havocBlockLarge, int havocBlockXLarge, int maxInput) {
+        Function<Config, ByteArrayStage[]> stagesCreator, Function<Config, RandomHavocTweak[]> havocTweaksCreator,
+        Random random, int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall, int havocBlockMedium,
+        int havocBlockLarge, int havocBlockXLarge, int maxInput) {
       this.initialValues = Objects.requireNonNull(initialValues);
       this.dictionary = Objects.requireNonNull(dictionary);
       this.hasher = Objects.requireNonNull(hasher);
       this.hashCacheCreator = Objects.requireNonNull(hashCacheCreator);
       this.inputQueueCreator = Objects.requireNonNull(inputQueueCreator);
-      this.stages = Objects.requireNonNull(stages);
+      this.stagesCreator = Objects.requireNonNull(stagesCreator);
+      this.havocTweaksCreator = Objects.requireNonNull(havocTweaksCreator);
+      this.random = Objects.requireNonNull(random);
       this.arithMax = arithMax;
       this.havocCycles = havocCycles;
       this.havocStackPower = havocStackPower;
@@ -113,13 +150,13 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
         return c -> new InputQueue.ListBacked(new ArrayList<>(), c.hasher);
       }
 
-      public ByteArrayStage[] stages;
-      public Builder stages(ByteArrayStage[] stages) {
-        this.stages = stages;
+      public Function<Config, ByteArrayStage[]> stagesCreator;
+      public Builder stagesCreator(Function<Config, ByteArrayStage[]> stagesCreator) {
+        this.stagesCreator = stagesCreator;
         return this;
       }
-      public ByteArrayStage[] stagesDefault() {
-        return new ByteArrayStage[] {
+      public Function<Config, ByteArrayStage[]> stagesCreatorDefault() {
+        return config -> new ByteArrayStage[] {
             new ByteArrayStage.FlipBits(1),
             new ByteArrayStage.FlipBits(2),
             new ByteArrayStage.FlipBits(4),
@@ -131,9 +168,44 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             new ByteArrayStage.Arith32(),
             new ByteArrayStage.Interesting8(),
             new ByteArrayStage.Interesting16(),
-            new ByteArrayStage.Interesting32()
+            new ByteArrayStage.Interesting32(),
+            new ByteArrayStage.Dictionary(config.dictionary)
         };
       }
+
+      public Function<Config, RandomHavocTweak[]> havocTweaksCreator;
+      public Builder havocTweaksCreator(Function<Config, RandomHavocTweak[]> havocTweaksCreator) {
+        this.havocTweaksCreator = havocTweaksCreator;
+        return this;
+      }
+      public Function<Config, RandomHavocTweak[]> havocTweaksCreatorDefault() {
+        return config -> new RandomHavocTweak[] {
+            new RandomHavocTweak.FlipSingleBit(),
+            new RandomHavocTweak.InterestingByte(),
+            new RandomHavocTweak.InterestingShort(),
+            new RandomHavocTweak.InterestingInt(),
+            new RandomHavocTweak.SubtractFromByte(),
+            new RandomHavocTweak.AddToByte(),
+            new RandomHavocTweak.SubtractFromShort(),
+            new RandomHavocTweak.AddToShort(),
+            new RandomHavocTweak.SubtractFromInt(),
+            new RandomHavocTweak.AddToInt(),
+            new RandomHavocTweak.SetRandomByte(),
+            new RandomHavocTweak.DeleteBytes(),
+            new RandomHavocTweak.DeleteBytes(),
+            new RandomHavocTweak.CloneOrInsertBytes(),
+            new RandomHavocTweak.OverwriteRandomOrFixedBytes(),
+            new RandomHavocTweak.OverwriteWithDictionary(),
+            new RandomHavocTweak.InsertWithDictionary()
+        };
+      }
+
+      public Random random;
+      public Builder random(Random random) {
+        this.random = random;
+        return this;
+      }
+      public Random randomDefault() { return new Random(); }
 
       public Config build() {
         return new Config(
@@ -142,7 +214,9 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             hasher == null ? hasherDefault() : hasher,
             hashCacheCreator == null ? hashCacheCreatorDefault() : hashCacheCreator,
             inputQueueCreator == null ? inputQueueCreatorDefault() : inputQueueCreator,
-            stages == null ? stagesDefault() : stages,
+            stagesCreator == null ? stagesCreatorDefault() : stagesCreator,
+            havocTweaksCreator == null ? havocTweaksCreatorDefault() : havocTweaksCreator,
+            random == null ? randomDefault() : random,
             arithMax,
             havocCycles,
             havocStackPower,

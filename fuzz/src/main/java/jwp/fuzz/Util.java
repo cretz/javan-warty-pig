@@ -7,6 +7,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class Util {
@@ -150,12 +151,33 @@ public class Util {
     return Stream.of(items).filter(Objects::nonNull);
   }
 
+  public static byte[] streamToByteArray(IntStream stream) {
+    int[] ints = stream.toArray();
+    byte[] ret = new byte[ints.length];
+    for (int i = 0; i < ints.length; i++) ret[i] = (byte) ints[i];
+    return ret;
+  }
+
+  public static short[] streamToShortArray(IntStream stream) {
+    int[] ints = stream.toArray();
+    short[] ret = new short[ints.length];
+    for (int i = 0; i < ints.length; i++) ret[i] = (short) ints[i];
+    return ret;
+  }
+
   public static byte[] toByteArray(short val) {
     return new byte[] { byte0(val), byte1(val) };
   }
 
   public static byte[] toByteArray(int val) {
     return new byte[] { byte0(val), byte1(val), byte2(val), byte3(val) };
+  }
+
+  public static byte[] withBytesRemoved(byte[] bytes, int start, int amount) {
+    byte[] newArr = new byte[bytes.length - amount];
+    System.arraycopy(bytes, 0, newArr, 0, start);
+    System.arraycopy(bytes, start + amount, newArr, start, newArr.length - start);
+    return newArr;
   }
 
   public static byte[] withCopiedBytes(byte[] arr, Consumer<byte[]> fn) {
