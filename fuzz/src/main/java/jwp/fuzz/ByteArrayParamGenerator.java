@@ -3,13 +3,9 @@ package jwp.fuzz;
 import java.io.Closeable;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
-import static jwp.fuzz.Util.*;
 
 public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
@@ -29,93 +25,13 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
   }
 
-  public Stream<byte[]> stages(byte[] buf) {
-    return Stream.of(
-        stageFlipBits(buf, 1),
-        stageFlipBits(buf, 2),
-        stageFlipBits(buf, 4),
-        stageFlipBytes(buf, 1),
-        stageFlipBytes(buf, 2),
-        stageFlipBytes(buf, 4)
-        // TODO: more
-    ).flatMap(Function.identity());
-  }
-
-  public Stream<byte[]> stageFlipBits(byte[] buf, int consecutiveToFlip) {
-    return IntStream.range(0, (buf.length * 8) - (consecutiveToFlip - 1)).boxed().map(bitIndex ->
-        withCopiedBytes(buf, bytes -> {
-          for (int i = 0; i < consecutiveToFlip; i++) flipBit(bytes, bitIndex + i);
-        })
-    );
-  }
-
-  public Stream<byte[]> stageFlipBytes(byte[] buf, int consecutiveToFlip) {
-    return IntStream.range(0, buf.length - (consecutiveToFlip - 1)).boxed().map(byteIndex ->
-        withCopiedBytes(buf, bytes -> {
-          for (int i = 0; i < consecutiveToFlip; i++) bytes[byteIndex + i] = (byte) ~bytes[byteIndex + i];
-        })
-    );
-  }
-
-  public Stream<byte[]> stageArith8(byte[] buf) {
-    return IntStream.range(0, buf.length).boxed().flatMap(byteIndex ->
-        IntStream.rangeClosed(-config.arithMax, config.arithMax).mapToObj(arithVal -> {
-          byte newByte = (byte) (buf[byteIndex] + arithVal);
-          if (couldHaveBitFlippedTo(buf[byteIndex], newByte)) return null;
-          return withCopiedBytes(buf, bytes -> bytes[byteIndex] = newByte);
-        }).filter(Objects::nonNull)
-    );
-  }
-
-  public Stream<byte[]> stageArith16(byte[] buf) {
-    BiPredicate<Short, Short> affectsBothBytes = (origShort, newShort) ->
-        byte0(origShort) != byte0(newShort) && byte1(origShort) != byte1(newShort);
-    return IntStream.range(0, buf.length - 1).boxed().flatMap(byteIndex -> {
-      short origLe = getShortLe(buf, byteIndex);
-      short origBe = getShortBe(buf, byteIndex);
-      return IntStream.rangeClosed(-config.arithMax, config.arithMax).boxed().flatMap(arithVal -> {
-        short newLe = (short) (origLe + arithVal);
-        byte[] leBytes = null;
-        if (affectsBothBytes.test(origLe, newLe) && !couldHaveBitFlippedTo(origLe, newLe))
-          leBytes = withCopiedBytes(buf, arr -> putShortLe(arr, byteIndex, newLe));
-        short newBe = (short) (origBe + arithVal);
-        byte[] beBytes = null;
-        if (affectsBothBytes.test(origBe, newBe) && !couldHaveBitFlippedTo(origLe, endianSwapped(newBe)))
-          beBytes = withCopiedBytes(buf, arr -> putShortBe(arr, byteIndex, newBe));
-        return streamOfNotNull(leBytes, beBytes);
-      });
-    });
-  }
-
-  public Stream<byte[]> stageArith32(byte[] buf) {
-    BiPredicate<Integer, Integer> affectsMoreThanTwoBytes = (origInt, newInt) ->
-        (byte0(origInt) == byte0(newInt) ? 0 : 1) +
-        (byte1(origInt) == byte1(newInt) ? 0 : 1) +
-        (byte2(origInt) == byte2(newInt) ? 0 : 1) +
-        (byte3(origInt) == byte3(newInt) ? 0 : 1) > 2;
-    return IntStream.range(0, buf.length - 3).boxed().flatMap(byteIndex -> {
-      int origLe = getIntLe(buf, byteIndex);
-      int origBe = getIntBe(buf, byteIndex);
-      return IntStream.rangeClosed(-config.arithMax, config.arithMax).boxed().flatMap(arithVal -> {
-        int newLe = origLe + arithVal;
-        byte[] leBytes = null;
-        if (affectsMoreThanTwoBytes.test(origLe, newLe) && !couldHaveBitFlippedTo(origLe, newLe))
-          leBytes = withCopiedBytes(buf, arr -> putIntLe(arr, byteIndex, newLe));
-        int newBe = origBe + arithVal;
-        byte[] beBytes = null;
-        if (affectsMoreThanTwoBytes.test(origBe, newBe) && !couldHaveBitFlippedTo(origLe, endianSwapped(newBe)))
-          beBytes = withCopiedBytes(buf, arr -> putIntBe(arr, byteIndex, newBe));
-        return streamOfNotNull(leBytes, beBytes);
-      });
-    });
-  }
-
   public static class Config {
     public final List<byte[]> initialValues;
     public final List<byte[]> dictionary;
     public final BranchHit.Hasher hasher;
     public final Function<Config, HashCache> hashCacheCreator;
     public final Function<Config, InputQueue> inputQueueCreator;
+    public final ByteArrayStage[] stages;
     public final int arithMax;
     public final int havocCycles;
     public final int havocStackPower;
@@ -126,14 +42,15 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     public final int maxInput;
 
     public Config(List<byte[]> initialValues, List<byte[]> dictionary, BranchHit.Hasher hasher,
-        Function<Config, HashCache> hashCacheCreator, Function<Config, InputQueue> inputQueueCreator, int arithMax,
-        int havocCycles, int havocStackPower, int havocBlockSmall, int havocBlockMedium, int havocBlockLarge,
-        int havocBlockXLarge, int maxInput) {
+        Function<Config, HashCache> hashCacheCreator, Function<Config, InputQueue> inputQueueCreator,
+        ByteArrayStage[] stages, int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall,
+        int havocBlockMedium, int havocBlockLarge, int havocBlockXLarge, int maxInput) {
       this.initialValues = Objects.requireNonNull(initialValues);
       this.dictionary = Objects.requireNonNull(dictionary);
       this.hasher = Objects.requireNonNull(hasher);
       this.hashCacheCreator = Objects.requireNonNull(hashCacheCreator);
       this.inputQueueCreator = Objects.requireNonNull(inputQueueCreator);
+      this.stages = Objects.requireNonNull(stages);
       this.arithMax = arithMax;
       this.havocCycles = havocCycles;
       this.havocStackPower = havocStackPower;
@@ -196,6 +113,28 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
         return c -> new InputQueue.ListBacked(new ArrayList<>(), c.hasher);
       }
 
+      public ByteArrayStage[] stages;
+      public Builder stages(ByteArrayStage[] stages) {
+        this.stages = stages;
+        return this;
+      }
+      public ByteArrayStage[] stagesDefault() {
+        return new ByteArrayStage[] {
+            new ByteArrayStage.FlipBits(1),
+            new ByteArrayStage.FlipBits(2),
+            new ByteArrayStage.FlipBits(4),
+            new ByteArrayStage.FlipBytes(1),
+            new ByteArrayStage.FlipBytes(2),
+            new ByteArrayStage.FlipBytes(4),
+            new ByteArrayStage.Arith8(),
+            new ByteArrayStage.Arith16(),
+            new ByteArrayStage.Arith32(),
+            new ByteArrayStage.Interesting8(),
+            new ByteArrayStage.Interesting16(),
+            new ByteArrayStage.Interesting32()
+        };
+      }
+
       public Config build() {
         return new Config(
             initialValues == null ? initialValuesDefault() : initialValues,
@@ -203,6 +142,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             hasher == null ? hasherDefault() : hasher,
             hashCacheCreator == null ? hashCacheCreatorDefault() : hashCacheCreator,
             inputQueueCreator == null ? inputQueueCreatorDefault() : inputQueueCreator,
+            stages == null ? stagesDefault() : stages,
             arithMax,
             havocCycles,
             havocStackPower,
