@@ -4,13 +4,12 @@ import org.objectweb.asm.Opcodes;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class BranchTracker {
 
-  public static final ConcurrentMap<Long, BranchHits> branchHits = new ConcurrentHashMap<>();
+  public static final ConcurrentMap<Thread, BranchHits> branchHits = new ConcurrentHashMap<>();
 
   public static final MethodBranchAdapter.MethodRefs refs;
 
@@ -38,14 +37,18 @@ public class BranchTracker {
     }
   }
 
+  public static void beginTrackingForThread(Thread thread) {
+    if (branchHits.putIfAbsent(thread, new BranchHits(thread.getId())) != null)
+      throw new IllegalArgumentException("Thread already being tracked");
+  }
+
+  public static BranchHits endTrackingForThread(Thread thread) {
+    return branchHits.remove(thread);
+  }
+
   public static void addBranchHash(Integer branchHash) {
-    Long threadId = Thread.currentThread().getId();
-    BranchHits hits = branchHits.get(threadId);
-    if (hits == null) {
-      hits = new BranchHits(threadId);
-      branchHits.put(threadId, hits);
-    }
-    hits.addHit(branchHash);
+    BranchHits hits = branchHits.get(Thread.currentThread());
+    if (hits != null) hits.addHit(branchHash);
   }
 
   public static void ifZeroCheck(int value, int opcode, int branchHash) {
