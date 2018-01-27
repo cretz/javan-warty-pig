@@ -1,11 +1,36 @@
 package jwp.fuzz;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
 public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
+
+  public static ParamGenerator<ByteBuffer> byteBufferParamGenerator(ByteArrayParamGenerator gen) {
+    return gen.mapNotNull(ByteBuffer::wrap, ByteBuffer::array);
+  }
+
+  public static ParamGenerator<CharBuffer> charBufferParamGenerator(Charset cs, ByteArrayParamGenerator gen) {
+    CharsetDecoder decoder = cs.newDecoder().onMalformedInput(CodingErrorAction.REPORT).
+        onUnmappableCharacter(CodingErrorAction.REPORT);
+    CharsetEncoder encoder = cs.newEncoder().onMalformedInput(CodingErrorAction.REPORT).
+        onUnmappableCharacter(CodingErrorAction.REPORT);
+    return byteBufferParamGenerator(gen).mapNotNull(
+        byteBuf -> {
+          try { return decoder.decode(byteBuf); } catch (CharacterCodingException e) { return null; } },
+        charBuf -> {
+          try { return encoder.encode(charBuf); } catch (CharacterCodingException e) { throw new RuntimeException(e); }
+        }
+    );
+  }
+
+  public static ParamGenerator<String> stringParamGenerator(Charset cs, ByteArrayParamGenerator gen) {
+    return charBufferParamGenerator(cs, gen).mapNotNull(CharBuffer::toString, CharBuffer::wrap);
+  }
 
   public final Config config;
 

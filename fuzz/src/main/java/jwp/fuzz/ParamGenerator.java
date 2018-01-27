@@ -1,6 +1,10 @@
 package jwp.fuzz;
 
 import java.util.Iterator;
+import java.util.Objects;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.function.Function;
 import java.util.stream.*;
 
 public interface ParamGenerator<T> extends AutoCloseable {
@@ -16,6 +20,28 @@ public interface ParamGenerator<T> extends AutoCloseable {
 
   @Override
   default void close() throws Exception { }
+
+  default <U> ParamGenerator<U> mapNotNull(Function<T, U> fnTo, Function<U, T> fnFrom) {
+    final ParamGenerator<T> self = this;
+    return new ParamGenerator<U>() {
+      @Override
+      public Iterator<U> iterator() {
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(
+          self.iterator(), Spliterator.ORDERED), false).map(fnTo).filter(Objects::nonNull).iterator();
+      }
+
+      @Override
+      public boolean isInfinite() { return self.isInfinite(); }
+
+      @Override
+      public void onComplete(ExecutionResult result, int myParamIndex, U myParam) {
+        self.onComplete(result, myParamIndex, fnFrom.apply(myParam));
+      }
+
+      @Override
+      public void close() throws Exception { self.close(); }
+    };
+  }
 
   static ParamGenerator<?> suggested(Class<?> cls) {
     if (cls == Boolean.TYPE) return of(true, false);
