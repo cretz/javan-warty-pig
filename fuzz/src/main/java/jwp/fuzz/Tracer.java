@@ -1,12 +1,13 @@
 package jwp.fuzz;
 
+import java.util.Arrays;
 import java.util.Map;
 
 public interface Tracer {
 
   void startTrace(Thread thread);
 
-  // This should never throw!
+  // This should never throw! The result should be sorted.
   BranchHit[] stopTrace(Thread thread);
 
   class Instrumenting implements Tracer {
@@ -24,6 +25,7 @@ public interface Tracer {
       for (Map.Entry<Integer, BranchTracker.IntRef> hit : hits.branchHashHits.entrySet()) {
         ret[index++] = new BranchHit(hit.getKey(), hit.getValue().value);
       }
+      Arrays.sort(ret);
       return ret;
     }
   }

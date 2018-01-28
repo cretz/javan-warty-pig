@@ -1,9 +1,10 @@
 package jwp.fuzz;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 
-public class BranchHit {
+public class BranchHit implements Comparable<BranchHit> {
   public final int branchHash;
   public final int hitCount;
   public final int withHitCountHash;
@@ -23,6 +24,12 @@ public class BranchHit {
     return 128;
   }
 
+  @Override
+  public int compareTo(BranchHit o) {
+    // Hit counts don't factor in because they don't affect uniqueness
+    return o == null ? -1 : Integer.compare(branchHash, o.branchHash);
+  }
+
   @FunctionalInterface
   public interface Hasher {
     Hasher WITH_HIT_COUNTS = hit -> hit.withHitCountHash;
@@ -30,6 +37,7 @@ public class BranchHit {
 
     int hash(BranchHit hit);
 
+    // Param should be sorted
     default int hash(BranchHit... hits) {
       int[] hashes = new int[hits.length];
       for (int i = 0; i < hits.length; i++) hashes[i] = hash(hits[i]);
