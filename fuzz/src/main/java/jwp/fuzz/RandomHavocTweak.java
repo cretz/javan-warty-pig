@@ -71,7 +71,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
       if (bytes.length < 4) return;
-      int index = gen.config.random.nextInt(bytes.length - 1);
+      int index = gen.config.random.nextInt(bytes.length - 3);
       if (gen.config.random.nextBoolean()) putIntLe(bytes, index, tweak(gen, getIntLe(bytes, index)));
       else putIntBe(bytes, index, tweak(gen, getIntBe(bytes, index)));
     }
@@ -192,7 +192,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
         byte fillWith;
         if (gen.config.random.nextBoolean()) fillWith = (byte) (gen.config.random.nextInt(256) - 128);
         else fillWith = bytes[gen.config.random.nextInt(bytes.length)];
-        Arrays.fill(bytes, copyTo, copyLen, fillWith);
+        Arrays.fill(bytes, copyTo, copyTo + copyLen, fillWith);
       }
     }
   }

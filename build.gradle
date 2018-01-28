@@ -52,6 +52,9 @@ project(':fuzz') {
         compile 'org.ow2.asm:asm-commons:6.0'
         compile 'org.ow2.asm:asm-util:6.0'
 
+        // Optional
+        compileOnly 'com.squareup:javapoet:1.9.0'
+
         testCompile 'junit:junit:4.12'
     }
     test {
@@ -63,8 +66,10 @@ project(':fuzz') {
 project(':examples') {
     subprojects {
         apply plugin: 'application'
+        run.systemProperties System.properties.findAll { it.key.startsWith("jwp.") }
+        run.dependsOn ':agent:shadowJar'
         dependencies {
-            compile project(':agent')
+            compileOnly project(':agent')
         }
     }
 }
@@ -72,6 +77,6 @@ project(':examples') {
 project(':examples:simple') {
     mainClassName = 'jwp.examples.simple.Main'
     run {
-        jvmArgs '-javaagent:../../agent/build/libs/agent.jar'
+        jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
     }
 }

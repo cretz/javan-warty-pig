@@ -10,11 +10,11 @@ import java.util.stream.Stream;
 
 public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
-  public static ParamGenerator<ByteBuffer> byteBufferParamGenerator(ByteArrayParamGenerator gen) {
+  public static ParamGenerator<ByteBuffer> byteBufferParamGenerator(ParamGenerator<byte[]> gen) {
     return gen.mapNotNull(ByteBuffer::wrap, ByteBuffer::array);
   }
 
-  public static ParamGenerator<CharBuffer> charBufferParamGenerator(Charset cs, ByteArrayParamGenerator gen) {
+  public static ParamGenerator<CharBuffer> charBufferParamGenerator(Charset cs, ParamGenerator<byte[]> gen) {
     CharsetDecoder decoder = cs.newDecoder().onMalformedInput(CodingErrorAction.REPORT).
         onUnmappableCharacter(CodingErrorAction.REPORT);
     CharsetEncoder encoder = cs.newEncoder().onMalformedInput(CodingErrorAction.REPORT).
@@ -28,7 +28,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     );
   }
 
-  public static ParamGenerator<String> stringParamGenerator(Charset cs, ByteArrayParamGenerator gen) {
+  public static ParamGenerator<String> stringParamGenerator(Charset cs, ParamGenerator<byte[]> gen) {
     return charBufferParamGenerator(cs, gen).mapNotNull(CharBuffer::toString, CharBuffer::wrap);
   }
 
@@ -66,8 +66,9 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       // last entry, we are at the beginning and we run with the initial values.
       byte[] entry = inputQueue.dequeue();
       if (entry == null && lastEntry != null) return stages[stages.length - 1].apply(this, lastEntry);
+      Stream<byte[]> startStream = entry == null ? config.initialValues.stream() : Stream.empty();
       Stream<byte[]> entryStream = entry == null ? config.initialValues.stream() : Stream.of(entry);
-      return entryStream.flatMap(buf -> {
+      return Stream.concat(startStream, entryStream.flatMap(buf -> {
         // Set the last entry and update the cycle count
         synchronized (varMutex) {
           this.lastEntry = buf;
@@ -75,7 +76,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
         }
         // Run each stage for this buf
         return Arrays.stream(stages).flatMap(stage -> stage.apply(this, buf));
-      });
+      }));
     }).flatMap(Function.identity());
   }
 
@@ -258,24 +259,29 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
         return this;
       }
       public Function<Config, RandomHavocTweak[]> havocTweaksCreatorDefault() {
-        return config -> new RandomHavocTweak[] {
-            new RandomHavocTweak.FlipSingleBit(),
-            new RandomHavocTweak.InterestingByte(),
-            new RandomHavocTweak.InterestingShort(),
-            new RandomHavocTweak.InterestingInt(),
-            new RandomHavocTweak.SubtractFromByte(),
-            new RandomHavocTweak.AddToByte(),
-            new RandomHavocTweak.SubtractFromShort(),
-            new RandomHavocTweak.AddToShort(),
-            new RandomHavocTweak.SubtractFromInt(),
-            new RandomHavocTweak.AddToInt(),
-            new RandomHavocTweak.SetRandomByte(),
-            new RandomHavocTweak.DeleteBytes(),
-            new RandomHavocTweak.DeleteBytes(),
-            new RandomHavocTweak.CloneOrInsertBytes(),
-            new RandomHavocTweak.OverwriteRandomOrFixedBytes(),
-            new RandomHavocTweak.OverwriteWithDictionary(),
-            new RandomHavocTweak.InsertWithDictionary()
+        return config -> {
+          List<RandomHavocTweak> tweaks = new ArrayList<>(Arrays.asList(
+              new RandomHavocTweak.FlipSingleBit(),
+              new RandomHavocTweak.InterestingByte(),
+              new RandomHavocTweak.InterestingShort(),
+              new RandomHavocTweak.InterestingInt(),
+              new RandomHavocTweak.SubtractFromByte(),
+              new RandomHavocTweak.AddToByte(),
+              new RandomHavocTweak.SubtractFromShort(),
+              new RandomHavocTweak.AddToShort(),
+              new RandomHavocTweak.SubtractFromInt(),
+              new RandomHavocTweak.AddToInt(),
+              new RandomHavocTweak.SetRandomByte(),
+              new RandomHavocTweak.DeleteBytes(),
+              new RandomHavocTweak.DeleteBytes(),
+              new RandomHavocTweak.CloneOrInsertBytes(),
+              new RandomHavocTweak.OverwriteRandomOrFixedBytes()
+          ));
+          if (!config.dictionary.isEmpty()) {
+            tweaks.add(new RandomHavocTweak.OverwriteWithDictionary());
+            tweaks.add(new RandomHavocTweak.InsertWithDictionary());
+          }
+          return tweaks.toArray(new RandomHavocTweak[tweaks.size()]);
         };
       }
 

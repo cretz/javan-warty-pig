@@ -28,7 +28,7 @@ public class Agent implements ClassFileTransformer {
   public final Set<String> classPrefixesToIgnore;
 
   public Agent(Instrumentation inst) {
-    this(inst, new String[] { "com.sun.", "java.", "jdk.", "jwp.", "kotlin.", "scala.", "sun." });
+    this(inst, new String[] { "com.sun.", "java.", "jdk.", "jwp.agent.", "jwp.fuzz.", "kotlin.", "scala.", "sun." });
   }
 
   public Agent(Instrumentation inst, String[] classPrefixesToIgnore) {
@@ -68,7 +68,12 @@ public class Agent implements ClassFileTransformer {
   @Override
   public byte[] transform(ClassLoader loader, String className, Class<?> classBeingRedefined,
       ProtectionDomain protectionDomain, byte[] classfileBuffer) {
-    if (isClassIgnored(Type.getObjectType(className).getClassName())) return null;
-    return ClassBranchAdapter.transform(classfileBuffer);
+    if (className == null || isClassIgnored(Type.getObjectType(className).getClassName())) return null;
+    try {
+      return ClassBranchAdapter.transform(classfileBuffer);
+    } catch (Throwable e) {
+      System.err.println("Failed to transform " + className + ": " + e);
+      return null;
+    }
   }
 }

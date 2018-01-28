@@ -7,16 +7,16 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public abstract class ParamProvider implements AutoCloseable {
-  public final ParamGenerator<? super Object>[] paramGenerators;
+  public final ParamGenerator[] paramGenerators;
 
-  @SafeVarargs
-  public ParamProvider(ParamGenerator<? super Object>... paramGenerators) {
+  public ParamProvider(ParamGenerator... paramGenerators) {
     this.paramGenerators = paramGenerators;
   }
 
   // Can trust the array is not edited (so it can be reused). No guarantees about the values inside though.
   public abstract Iterator<Object[]> iterator();
 
+  @SuppressWarnings("unchecked")
   public void onResult(ExecutionResult result) {
     for (int i = 0; i < paramGenerators.length; i++) {
       paramGenerators[i].onComplete(result, i, result.params[i]);
@@ -25,7 +25,7 @@ public abstract class ParamProvider implements AutoCloseable {
 
   @Override
   public void close() throws Exception {
-    for (ParamGenerator<?> paramGen : paramGenerators) paramGen.close();
+    for (ParamGenerator paramGen : paramGenerators) paramGen.close();
   }
 
   // Makes infinite ones change one at a time evenly amongst each other forever. Makes the first 3 non-infinite
@@ -33,8 +33,7 @@ public abstract class ParamProvider implements AutoCloseable {
   public static class Suggested extends ParamProvider {
     protected final ParamProvider prov;
 
-    @SafeVarargs
-    public Suggested(ParamGenerator<? super Object>... paramGenerators) {
+    public Suggested(ParamGenerator... paramGenerators) {
       super(paramGenerators);
       prov = new Partitioned(
           paramGenerators,
@@ -54,22 +53,22 @@ public abstract class ParamProvider implements AutoCloseable {
   }
 
   public static class Partitioned extends ParamProvider {
-    public final BiPredicate<Integer, ParamGenerator<?>> predicate;
-    public final Function<ParamGenerator<? super Object>[], ParamProvider> trueProvider;
-    public final Function<ParamGenerator<? super Object>[], ParamProvider> falseProvider;
+    public final BiPredicate<Integer, ParamGenerator> predicate;
+    public final Function<ParamGenerator[], ParamProvider> trueProvider;
+    public final Function<ParamGenerator[], ParamProvider> falseProvider;
     public final boolean stopWhenBothHaveEndedOnce;
 
-    public Partitioned(ParamGenerator<? super Object>[] paramGenerators,
-        BiPredicate<Integer, ParamGenerator<?>> predicate,
-        Function<ParamGenerator<? super Object>[], ParamProvider> trueProvider,
-        Function<ParamGenerator<? super Object>[], ParamProvider> falseProvider) {
+    public Partitioned(ParamGenerator[] paramGenerators,
+        BiPredicate<Integer, ParamGenerator> predicate,
+        Function<ParamGenerator[], ParamProvider> trueProvider,
+        Function<ParamGenerator[], ParamProvider> falseProvider) {
       this(paramGenerators, predicate, trueProvider, falseProvider, true);
     }
 
-    public Partitioned(ParamGenerator<? super Object>[] paramGenerators,
-        BiPredicate<Integer, ParamGenerator<?>> predicate,
-        Function<ParamGenerator<? super Object>[], ParamProvider> trueProvider,
-        Function<ParamGenerator<? super Object>[], ParamProvider> falseProvider,
+    public Partitioned(ParamGenerator[] paramGenerators,
+        BiPredicate<Integer, ParamGenerator> predicate,
+        Function<ParamGenerator[], ParamProvider> trueProvider,
+        Function<ParamGenerator[], ParamProvider> falseProvider,
         boolean stopWhenBothHaveEndedOnce) {
       super(paramGenerators);
       this.predicate = predicate;
@@ -81,9 +80,9 @@ public abstract class ParamProvider implements AutoCloseable {
     @Override
     @SuppressWarnings("unchecked")
     public Iterator<Object[]> iterator() {
-      List<ParamGenerator<? super Object>> trueGens = new ArrayList<>();
+      List<ParamGenerator> trueGens = new ArrayList<>();
       List<Integer> trueIndexList = new ArrayList<>();
-      List<ParamGenerator<? super Object>> falseGens = new ArrayList<>();
+      List<ParamGenerator> falseGens = new ArrayList<>();
       List<Integer> falseIndexList = new ArrayList<>();
       for (int i = 0; i < paramGenerators.length; i++) {
         if (predicate.test(i, paramGenerators[i])) {
@@ -131,16 +130,14 @@ public abstract class ParamProvider implements AutoCloseable {
     }
   }
 
-  public static class EvenSingleParamChange extends ParamProvider {
+  public static class EvenAllParamChange extends ParamProvider {
     public final boolean completeWhenAllCycledAtLeastOnce;
 
-    @SafeVarargs
-    public EvenSingleParamChange(ParamGenerator<? super Object>... paramGenerators) {
+    public EvenAllParamChange(ParamGenerator... paramGenerators) {
       this(paramGenerators, true);
     }
 
-    public EvenSingleParamChange(ParamGenerator<? super Object>[] paramGenerators,
-        boolean completeWhenAllCycledAtLeastOnce) {
+    public EvenAllParamChange(ParamGenerator[] paramGenerators, boolean completeWhenAllCycledAtLeastOnce) {
       super(paramGenerators);
       this.completeWhenAllCycledAtLeastOnce = completeWhenAllCycledAtLeastOnce;
     }
@@ -148,9 +145,55 @@ public abstract class ParamProvider implements AutoCloseable {
     @Override
     public Iterator<Object[]> iterator() {
       return new Util.NullMeansCompleteIterator<Object[]>() {
-        private final Iterator<?>[] iters = new Iterator[paramGenerators.length];
+        private final Iterator[] iters = new Iterator[paramGenerators.length];
+        private final boolean[] completedOnce = new boolean[paramGenerators.length];
+        private final Object[] params = new Object[paramGenerators.length];
+
+        { for (int i = 0; i < params.length; i++) iters[i] = paramGenerators[i].iterator(); }
+
+        private boolean allCompleted() {
+          for (boolean iterCompleted : completedOnce) if (!iterCompleted) return false;
+          return true;
+        }
+
+        @Override
+        protected Object[] doNext() {
+          for (int i = 0; i < params.length; i++) {
+            if (!iters[i].hasNext()) {
+              if (completeWhenAllCycledAtLeastOnce && !completedOnce[i]) {
+                completedOnce[i] = true;
+                if (allCompleted()) return null;
+              }
+              iters[i] = paramGenerators[i].iterator();
+            }
+            params[i] = iters[i].next();
+          }
+          return params;
+        }
+      };
+    }
+  }
+
+  // Changes one parameter at a time, left to right
+  public static class EvenSingleParamChange extends ParamProvider {
+    public final boolean completeWhenAllCycledAtLeastOnce;
+
+    public EvenSingleParamChange(ParamGenerator... paramGenerators) {
+      this(paramGenerators, true);
+    }
+
+    public EvenSingleParamChange(ParamGenerator[] paramGenerators, boolean completeWhenAllCycledAtLeastOnce) {
+      super(paramGenerators);
+      this.completeWhenAllCycledAtLeastOnce = completeWhenAllCycledAtLeastOnce;
+    }
+
+    @Override
+    public Iterator<Object[]> iterator() {
+      return new Util.NullMeansCompleteIterator<Object[]>() {
+        private final Iterator[] iters = new Iterator[paramGenerators.length];
         private int currIterIndex;
         private final boolean[] completedOnce = new boolean[paramGenerators.length];
+        private boolean firstRun = true;
         private final Object[] params = new Object[paramGenerators.length];
 
         {
@@ -160,19 +203,21 @@ public abstract class ParamProvider implements AutoCloseable {
           }
         }
 
+        private boolean allCompleted() {
+          for (boolean iterCompleted : completedOnce) if (!iterCompleted) return false;
+          return true;
+        }
+
         @Override
         protected Object[] doNext() {
+          if (firstRun) {
+            firstRun = false;
+            return params;
+          }
           if (!iters[currIterIndex].hasNext()) {
             if (completeWhenAllCycledAtLeastOnce && !completedOnce[currIterIndex]) {
               completedOnce[currIterIndex] = true;
-              boolean foundOneNotCompleted = false;
-              for (boolean iterCompleted : completedOnce) {
-                if (!iterCompleted) {
-                  foundOneNotCompleted = true;
-                  break;
-                }
-              }
-              if (!foundOneNotCompleted) return null;
+              if (allCompleted()) return null;
             }
             iters[currIterIndex] = paramGenerators[currIterIndex].iterator();
           }
@@ -185,14 +230,14 @@ public abstract class ParamProvider implements AutoCloseable {
   }
 
   public static class AllPermutations extends ParamProvider {
-    @SafeVarargs
-    public AllPermutations(ParamGenerator<? super Object>... paramGenerators) {
+    public AllPermutations(ParamGenerator... paramGenerators) {
       super(paramGenerators);
     }
 
     @Override
     public Iterator<Object[]> iterator() { return stream().iterator(); }
 
+    @SuppressWarnings("unchecked")
     public Stream<Object[]> stream() {
       Stream<Object[]> ret = Stream.of(new Object[][]{ new Object[paramGenerators.length] });
       for (int i = 0; i < paramGenerators.length; i++) {
@@ -218,12 +263,11 @@ public abstract class ParamProvider implements AutoCloseable {
     public final int hashSetMaxBeforeReset;
     public final int maxDupeGenBeforeQuit;
 
-    @SafeVarargs
-    public RandomSingleParamChange(ParamGenerator<? super Object>... paramGenerators) {
+    public RandomSingleParamChange(ParamGenerator... paramGenerators) {
       this(paramGenerators, new Random(), 20000, 200);
     }
 
-    public RandomSingleParamChange(ParamGenerator<? super Object>[] paramGenerators,
+    public RandomSingleParamChange(ParamGenerator[] paramGenerators,
         Random random, int hashSetMaxBeforeReset, int maxDupeGenBeforeQuit) {
       super(paramGenerators);
       this.random = random;

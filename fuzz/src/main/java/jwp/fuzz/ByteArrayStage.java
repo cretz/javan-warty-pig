@@ -187,6 +187,7 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     protected static boolean arithShortCheck(ByteArrayParamGenerator gen, byte[] origArr, byte[] newArr, int index) {
       for (int i = 0; i < 4; i++) {
         if (origArr[i] != newArr[i] && i != index + 1) {
+          if (i != index) return false;
           int diff = getShortLe(newArr, i) - getShortLe(origArr, i);
           if (diff < -gen.config.arithMax || diff > gen.config.arithMax) return false;
         }
@@ -287,14 +288,14 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     @Override
     public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
       // TODO: base havoc cycles on perf
-      return IntStream.range(0, gen.config.havocCycles).boxed().map(havocCycle ->
-          withCopiedBytes(buf, bytes -> {
-            int tweakCount = (int) Math.pow(2, 1 + gen.config.random.nextInt(gen.config.havocStackPower));
-            for (int i = 0; i < tweakCount; i++) {
-              bytes = tweaks[gen.config.random.nextInt(tweaks.length)].apply(gen, bytes);
-            }
-          })
-      );
+      return IntStream.range(0, gen.config.havocCycles).boxed().map(havocCycle -> {
+        byte[] bytes = Arrays.copyOf(buf, buf.length);
+        int tweakCount = (int) Math.pow(2, 1 + gen.config.random.nextInt(gen.config.havocStackPower));
+        for (int i = 0; i < tweakCount; i++) {
+          bytes = tweaks[gen.config.random.nextInt(tweaks.length)].apply(gen, bytes);
+        }
+        return bytes;
+      });
     }
   }
 }

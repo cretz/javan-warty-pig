@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.*;
 
@@ -22,13 +23,18 @@ public interface ParamGenerator<T> extends AutoCloseable {
   @Override
   default void close() throws Exception { }
 
-  default <U> ParamGenerator<U> mapNotNull(Function<T, U> fnTo, Function<U, T> fnFrom) {
+  default ParamGenerator<T> affectedStream(Function<Stream<T>, Stream<T>> changeFn) {
+    return affectedStream(changeFn, Function.identity());
+  }
+
+  default <U> ParamGenerator<U> affectedStream(Function<Stream<T>, Stream<U>> changeFn,
+      Function<U, T> onCompleteChangeParamBackFn) {
     final ParamGenerator<T> self = this;
     return new ParamGenerator<U>() {
       @Override
       public Iterator<U> iterator() {
-        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(
-          self.iterator(), Spliterator.ORDERED), false).map(fnTo).filter(Objects::nonNull).iterator();
+        return changeFn.apply(StreamSupport.stream(Spliterators.spliteratorUnknownSize(
+            self.iterator(), Spliterator.ORDERED), false)).iterator();
       }
 
       @Override
@@ -36,12 +42,20 @@ public interface ParamGenerator<T> extends AutoCloseable {
 
       @Override
       public void onComplete(ExecutionResult result, int myParamIndex, U myParam) {
-        self.onComplete(result, myParamIndex, fnFrom.apply(myParam));
+        self.onComplete(result, myParamIndex, onCompleteChangeParamBackFn.apply(myParam));
       }
 
       @Override
       public void close() throws Exception { self.close(); }
     };
+  }
+
+  default <U> ParamGenerator<U> mapNotNull(Function<T, U> fnTo, Function<U, T> fnFrom) {
+    return affectedStream(s -> s.map(fnTo).filter(Objects::nonNull), fnFrom);
+  }
+
+  default ParamGenerator<T> filter(Predicate<T> pred) {
+    return affectedStream(s -> s.filter(pred));
   }
 
   static ParamGenerator<? super Object> suggestedFixed(Class<?> cls) {

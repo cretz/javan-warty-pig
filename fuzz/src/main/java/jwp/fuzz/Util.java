@@ -217,7 +217,6 @@ public class Util {
 
   public static abstract class NullMeansCompleteIterator<T> implements Iterator<T> {
     protected T prev;
-    protected boolean usePrev = false;
     protected boolean finished = false;
 
     protected abstract T doNext();
@@ -231,12 +230,11 @@ public class Util {
       return next(false);
     }
 
-    protected T next(boolean canUsePrev) {
-      if (canUsePrev && usePrev) return prev;
-      usePrev = true;
-      prev = doNext();
-      if (prev == null) finished = true;
-      return prev;
+    protected T next(boolean canCacheResult) {
+      T ret = prev == null ? doNext() : prev;
+      if (ret == null) finished = true;
+      prev = canCacheResult ? ret : null;
+      return ret;
     }
   }
 }
