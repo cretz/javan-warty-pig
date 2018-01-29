@@ -102,10 +102,8 @@ public class Main {
     return new Num(neg, num, frac);
   }
 
-  private static boolean hasAcceptableChars(byte[] b) {
-    for (int i = 0; i < b.length; i++) {
-      if (b[i] < 32 || b[i] > 126) return false;
-    }
+  private static boolean hasAcceptableChars(byte[] bytes) {
+    for (byte b : bytes) if (b < 32 || b > 126) return false;
     return true;
   }
 

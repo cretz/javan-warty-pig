@@ -11,14 +11,15 @@ public class AgentBootstrap {
     try {
       // Add JAR to bootstrap loader
       java.net.URL url = ClassLoader.getSystemResource("jwp/agent");
-      JarFile jarfile = ((JarURLConnection) url.openConnection()).getJarFile();
-      inst.appendToBootstrapClassLoaderSearch(jarfile);
+      JarFile jarFile = ((JarURLConnection) url.openConnection()).getJarFile();
+      inst.appendToBootstrapClassLoaderSearch(jarFile);
 
       // Invoke Agent::premain w/ runtime lookup
       Class.forName("jwp.agent.Agent").
           getDeclaredMethod("premain", String.class, Instrumentation.class).
           invoke(null, agentArgs, inst);
     } catch (Exception e) {
+      System.err.println("Unable to start agent: " + e);
       throw new RuntimeException(e);
     }
   }

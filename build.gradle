@@ -63,6 +63,21 @@ project(':fuzz') {
     }
 }
 
+project(':extras') {
+    dependencies {
+        compile 'com.squareup:javapoet:1.9.0'
+
+        // Compile only because these classes come via the agent
+        compileOnly project(':agent')
+
+        testCompile 'junit:junit:4.12'
+    }
+    test {
+        outputs.upToDateWhen { false }
+        testLogging.showStandardStreams = true
+    }
+}
+
 project(':examples') {
     subprojects {
         apply plugin: 'application'
@@ -74,9 +89,62 @@ project(':examples') {
     }
 }
 
+project(':examples:csv') {
+    mainClassName = 'jwp.examples.csv.Main'
+    run.jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
+    test.jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
+    run.args 'src/test/java', 'jwp.examples.csv.MainTest'
+    configurations {
+        externalClasses
+        externalSources
+    }
+    dependencies {
+        compile 'com.opencsv:opencsv:4.1'
+        compile project(':extras')
+        testCompile 'junit:junit:4.12'
+
+    }
+    // Need to force UTF-8 due to how we store the test file and that it can have strange chars
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+    }
+    test {
+        outputs.upToDateWhen { false }
+        testLogging {
+            afterSuite { desc, result ->
+                if (!desc.parent) println("${result.successfulTestCount} of ${result.testCount} tests succeeded")
+            }
+        }
+    }
+    // Code coverage stuff with help from https://stackoverflow.com/a/
+    apply plugin: 'jacoco'
+    dependencies {
+        testCompile 'com.opencsv:opencsv:4.1:sources@jar'
+        externalClasses 'com.opencsv:opencsv:4.1'
+        externalSources 'com.opencsv:opencsv:4.1:sources@jar'
+    }
+    task unzipExternalClasses(type: Copy) {
+        from zipTree(configurations.externalClasses.files.first())
+        into "$buildDir/tmp/externalClasses"
+    }
+    task unzipExternalSources(type: Copy) {
+        from zipTree(configurations.externalSources.files.first())
+        into "$buildDir/tmp/externalSources"
+    }
+    jacocoTestReport {
+        dependsOn unzipExternalClasses, unzipExternalSources
+        reports {
+            xml.enabled true
+            csv.enabled true
+            html.enabled true
+            html.destination file("${buildDir}/jacocoHtml")
+        }
+        additionalSourceDirs = files("$buildDir/tmp/externalSources")
+        additionalClassDirs = files("$buildDir/tmp/externalClasses")
+    }
+}
+
 project(':examples:simple') {
     mainClassName = 'jwp.examples.simple.Main'
-    run {
-        jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
-    }
+    run.jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
 }

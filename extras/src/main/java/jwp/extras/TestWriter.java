@@ -1,6 +1,7 @@
-package jwp.fuzz;
+package jwp.extras;
 
 import com.squareup.javapoet.*;
+import jwp.fuzz.ExecutionResult;
 
 import javax.lang.model.element.Modifier;
 import java.io.IOException;
@@ -8,7 +9,8 @@ import java.util.Arrays;
 import java.util.List;
 
 public abstract class TestWriter {
-  protected static String doubleQuotedString(String string) {
+
+  public static String doubleQuotedString(String string) {
     // https://github.com/square/javapoet/issues/604 :-(
     string = CodeBlock.of("$S", string).toString();
     while (true) {
@@ -76,6 +78,8 @@ public abstract class TestWriter {
     @Override
     public synchronized void append(ExecutionResult result) {
       MethodSpec.Builder methodBld = MethodSpec.methodBuilder(config.namer.name(result)).addModifiers(Modifier.PUBLIC);
+      // If the method throws, we throw
+      Arrays.asList(result.method.getExceptionTypes()).forEach(methodBld::addException);
       // Create @Test annotation, add expected exception if there
       AnnotationSpec.Builder annBld = AnnotationSpec.builder(ClassName.get("org.junit", "Test"));
       if (result.exception != null) {
@@ -92,7 +96,7 @@ public abstract class TestWriter {
         if (result.method.getReturnType().isArray()) assertMethodName = "assertArrayEquals";
         else assertMethodName = "assertEquals";
         CodeBlock.Builder assertCall = CodeBlock.builder().add(
-            "$T.$L", ClassName.get("org.junit", "Assert"), assertMethodName);
+            "$T.$L(", ClassName.get("org.junit", "Assert"), assertMethodName);
         appendItem(code, assertCall, result.result);
         code.add(assertCall.add(", result);\n").build());
       }
