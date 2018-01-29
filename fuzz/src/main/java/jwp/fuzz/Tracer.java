@@ -3,6 +3,7 @@ package jwp.fuzz;
 import java.util.Arrays;
 import java.util.Map;
 
+/** TODO: javadoc */
 public interface Tracer {
 
   void startTrace(Thread thread);

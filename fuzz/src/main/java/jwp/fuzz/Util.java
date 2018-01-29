@@ -16,6 +16,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+/** TODO: javadoc */
 public class Util {
   public static byte byte0(short val) { return (byte) val; }
   public static byte byte1(short val) { return (byte) (val >> 8); }

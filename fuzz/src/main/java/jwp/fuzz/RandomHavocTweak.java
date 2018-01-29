@@ -5,6 +5,7 @@ import java.util.function.BiFunction;
 import static jwp.fuzz.Util.*;
 
 // Should not store any mutable state
+/** TODO: javadoc */
 @FunctionalInterface
 public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, byte[], byte[]> {
   // The given byte array can be mutated and returned safely. Or a brand new array can be returned.

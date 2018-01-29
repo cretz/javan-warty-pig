@@ -7,13 +7,29 @@ import java.util.stream.Stream;
 
 import static jwp.fuzz.Util.*;
 
-// Implementations should not keep state per apply. These are instantiated once per entire run, not per buf.
+/**
+ * A stage's {@link #apply(ByteArrayParamGenerator, byte[])} is executed on a byte array and returns a new byte array
+ * to try. Stages are iterated over in the {@link ByteArrayParamGenerator} to make new byte arrays. The set of stages is
+ * configured via {@link ByteArrayParamGenerator.Config#stagesCreator}.
+ * <p>
+ * Stages are usually just created once, so they should not store mutable state across
+ * {@link #apply(ByteArrayParamGenerator, byte[])} invocations. See {@link #apply(ByteArrayParamGenerator, byte[])} for
+ * more details.
+ */
 @FunctionalInterface
 public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte[], Stream<byte[]>> {
 
-  // This should not mutate buf. Only copies are returned.
+  /**
+   * Invoked by {@link ByteArrayParamGenerator} to generate a new byte array parameters. The passed in byte array should
+   * not be mutated in any way. Instead, this should create a stream of byte arrays with each byte array starting from
+   * a copy of buf. This may be called many times in many ways so implementations should take care not to store any
+   * meaningful cross-invocation state. Also, due to the fact that streams can only be iterated once, this method should
+   * always create a new stream. This should never return null. If the stage order is likely known, implementors are
+   * encouraged to do what they can to not generate something that has been generated before.
+   */
   Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf);
 
+  /** Walking bit flip, flipping a configurably-consecutive amount */
   class FlipBits implements ByteArrayStage {
     protected final int consecutiveToFlip;
     public FlipBits(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
@@ -28,6 +44,7 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /** Walking byte flip/inverter, inverting a configurably-consecutive amount */
   class FlipBytes implements ByteArrayStage {
     protected final int consecutiveToFlip;
     public FlipBytes(int consecutiveToFlip) { this.consecutiveToFlip = consecutiveToFlip; }
@@ -42,12 +59,14 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /** Base for all arithmetic-based stages */
   abstract class ArithBase implements ByteArrayStage {
     protected static Stream<Integer> arithVals(ByteArrayParamGenerator gen) {
       return IntStream.rangeClosed(-gen.config.arithMax, gen.config.arithMax).boxed();
     }
   }
 
+  /** Add/subtract a byte at a time. This makes sure not to repeat changes made by {@link FlipBits}. */
   class Arith8 extends ArithBase {
     @Override
     public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
@@ -61,6 +80,9 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Add/subtract a short at a time. This makes sure not to repeat changes made by {@link FlipBits} and {@link Arith8}.
+   */
   class Arith16 extends ArithBase {
     protected static boolean affectsBothBytes(short origShort, short newShort) {
       return byte0(origShort) != byte0(newShort) && byte1(origShort) != byte1(newShort);
@@ -83,6 +105,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Add/subtract an int at a time. This makes sure not to repeat changes made by {@link FlipBits}, {@link Arith8},
+   * and {@link Arith16}.
+   */
   class Arith32 extends ArithBase {
     protected static boolean affectsMoreThanTwoBytes(int origInt, int newInt) {
       return (byte0(origInt) == byte0(newInt) ? 0 : 1) +
@@ -108,12 +134,16 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /** Base classes for all stages setting "interesting" values */
   abstract class InterestingBase implements ByteArrayStage {
     // These are read-only, do not change
     protected static byte[] interestingBytes = streamToByteArray(ParamGenerator.interestingBytes());
     protected static short[] interestingShorts = streamToShortArray(ParamGenerator.interestingShorts());
   }
 
+  /**
+   * Walking interesting-byte setter. This makes sure not to repeat {@link FlipBits} and {@link Arith8}.
+   */
   class Interesting8 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator gen, byte origByte, byte newByte) {
       return newByte >= origByte - gen.config.arithMax && newByte <= origByte + gen.config.arithMax;
@@ -133,6 +163,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Walking interesting-short setter. This makes sure not to repeat {@link FlipBits}, {@link Arith8}, and
+   * {@link Interesting8}.
+   */
   class Interesting16 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator gen, short origShort, short newShort) {
       if (newShort >= origShort - gen.config.arithMax && newShort <= origShort + gen.config.arithMax) return true;
@@ -167,6 +201,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Walking interesting-int setter. This makes sure not to repeat {@link FlipBits}, {@link Arith8},
+   * {@link Interesting8}, and {@link Interesting16}.
+   */
   class Interesting32 extends InterestingBase {
     protected static boolean couldBeArith(ByteArrayParamGenerator gen, byte[] origArr, byte[] newArr) {
       for (int i = 0; i < 4; i++) {
@@ -251,6 +289,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Walking dictionary-item setter using the configured dictionary from
+   * {@link ByteArrayParamGenerator.Config#dictionary}
+   */
   class OverwriteWithDictionary implements ByteArrayStage {
     @Override
     public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
@@ -264,6 +306,10 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Walking dictionary-item inserter using the configured dictionary from
+   * {@link ByteArrayParamGenerator.Config#dictionary}
+   */
   class InsertWithDictionary implements ByteArrayStage {
     @Override
     public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
@@ -280,6 +326,12 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
     }
   }
 
+  /**
+   * Randomly change bytes using {@link RandomHavocTweak}s. The number of resulting byte arrays is controlled via
+   * {@link ByteArrayParamGenerator.Config#havocCycles}. The number of tweaks made to each byte array is affected by
+   * {@link ByteArrayParamGenerator.Config#havocStackPower} (see
+   * {@link ByteArrayParamGenerator.Config.Builder#havocStackPower}).
+   */
   class RandomHavoc implements ByteArrayStage {
     protected final RandomHavocTweak[] tweaks;
 

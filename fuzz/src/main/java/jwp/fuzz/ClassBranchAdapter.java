@@ -2,8 +2,10 @@ package jwp.fuzz;
 
 import org.objectweb.asm.*;
 
+/** The {@link ClassVisitor} that uses {@link MethodBranchAdapter} to insert branch calls in methods */
 public class ClassBranchAdapter extends ClassVisitor {
 
+  /** Create new classfile bytecode set from given original classfile bytecode using this adapter */
   public static byte[] transform(byte[] origBytes) {
     ClassReader reader = new ClassReader(origBytes);
     ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_MAXS);
@@ -14,6 +16,7 @@ public class ClassBranchAdapter extends ClassVisitor {
   private final MethodBranchAdapter.MethodRefs refs;
   private String className;
 
+  /** Create this adapter with the given {@link MethodBranchAdapter.MethodRefs} to call */
   public ClassBranchAdapter(MethodBranchAdapter.MethodRefs refs, ClassVisitor cv) {
     super(Opcodes.ASM6, cv);
     this.refs = refs;

@@ -17,6 +17,23 @@ allprojects {
     repositories {
         mavenCentral()
     }
+    javadoc {
+        options.links 'https://docs.oracle.com/javase/8/docs/api/'
+        // TODO: change when https://github.com/gradle/gradle/issues/2354 is fixed
+        options.addStringOption 'Xdoclint:all', '-Xdoclint:-missing'
+    }
+    task packageJavadoc(type: Jar, dependsOn: 'javadoc') {
+        from javadoc.destinationDir
+        classifier = 'javadoc'
+    }
+    task packageSources(type: Jar, dependsOn: 'classes') {
+        from sourceSets.main.allSource
+        classifier = 'sources'
+    }
+    artifacts {
+        archives packageJavadoc
+        archives packageSources
+    }
 }
 
 project(':agent') {
@@ -60,21 +77,6 @@ project(':fuzz') {
     test {
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
-    }
-    javadoc {
-        options.links 'https://docs.oracle.com/javase/8/docs/api/'
-    }
-    task packageJavadoc(type: Jar, dependsOn: 'javadoc') {
-        from javadoc.destinationDir
-        classifier = 'javadoc'
-    }
-    task packageSources(type: Jar, dependsOn: 'classes') {
-        from sourceSets.main.allSource
-        classifier = 'sources'
-    }
-    artifacts {
-        archives packageJavadoc
-        archives packageSources
     }
 }
 

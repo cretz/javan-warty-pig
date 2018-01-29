@@ -14,6 +14,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
   // Guaranteed to be iterated in a single thread.
   Iterator<T> iterator();
 
+  /** Whether the result of {@link #iterator()} ever terminates */
   boolean isInfinite();
 
   // Note, myParam is not necessarily the same type as result.params[myParamIndex] because

@@ -13,12 +13,25 @@ import java.util.ListIterator;
 import java.util.Set;
 import java.util.function.Consumer;
 
+/**
+ * {@link MethodVisitor} that manipulates method bytecode before calling the delegating visitor. This inserts static
+ * calls to references in the given {@link MethodRefs} on each branch. The values are also duplicated and sent to the
+ * static methods as needed. The bytecodes that the static calls are inserted before are: IFEQ, IFNE, IFLT, IFGE, IFGT,
+ * IFLE, IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE, IF_ACMPEQ, IF_ACMPNE, IFNULL, IFNONNULL,
+ * TABLESWITCH, and LOOKUPSWITCH. Also, a static call is made at the start of each catch handler as that is considered
+ * a branch as well.
+ */
 public class MethodBranchAdapter extends MethodNode {
 
   private final MethodRefs refs;
   private final String className;
   private final MethodVisitor mv;
 
+  /**
+   * Create this adapter with a set of {@link MethodRefs}, the internal class name for the method, values given from
+   * {@link org.objectweb.asm.ClassVisitor#visitMethod(int, String, String, String, String[])}, and a
+   * {@link MethodVisitor} to delegate to.
+   */
   public MethodBranchAdapter(MethodRefs refs, String className, int access, String name,
       String desc, String signature, String[] exceptions, MethodVisitor mv) {
     super(Opcodes.ASM6, access, name, desc, signature, exceptions);
@@ -27,7 +40,7 @@ public class MethodBranchAdapter extends MethodNode {
     this.mv = mv;
   }
 
-  // Make sure index is the index AFTER nodes are inserted
+  /** Note, this must be the index AFTER nodes are inserted */
   private int insnHashCode(int index) {
     return Arrays.hashCode(new int[] { className.hashCode(), name.hashCode(), desc.hashCode(), index });
   }
@@ -121,14 +134,20 @@ public class MethodBranchAdapter extends MethodNode {
     accept(mv);
   }
 
+  /** A set of {@link MethodRef}s by opcode. The {@link Builder} must be used to create it. */
   public static class MethodRefs {
 
+    /** The builder to create the {@link MethodRefs} */
     public static Builder builder() { return new Builder(); }
 
     private final MethodRef[] refsByOpcode;
 
     private MethodRefs(MethodRef[] refsByOpcode) { this.refsByOpcode = refsByOpcode; }
 
+    /**
+     * The builder to create a {@link MethodRefs} instance. This does validation to make sure all proper methods are set
+     * and are of the proper type.
+     */
     public static class Builder {
       private static final Type OBJECT_TYPE = Type.getType(Object.class);
       private static final Type INT_ARRAY_TYPE = Type.getType(int[].class);
@@ -168,9 +187,14 @@ public class MethodBranchAdapter extends MethodNode {
 
       private final MethodRef[] refsByOpcode = new MethodRef[validityCheckers.length];
 
-      // Note: ATHROW is used for catches
+      /**
+       * Set a specific {@link MethodRef} for a specific opcode. Each branching opcode must have a method set and it
+       * must have an accurate set of parameters. For the catch handler, it should be assigned to the ATHROW
+       * opcode. Validation does not occur until {@link #build()}
+       */
       public void set(int opcode, MethodRef ref) { refsByOpcode[opcode] = ref; }
 
+      /** Validate and build the refs */
       public MethodRefs build() {
         // Do validity checks
         for (int i = 0; i < validityCheckers.length; i++) {
@@ -185,21 +209,28 @@ public class MethodBranchAdapter extends MethodNode {
     }
   }
 
+  /** A reference to a static method call */
   public static class MethodRef {
+    /** The internal JVM name/signature of the class containing the method */
     public final String classSig;
+    /** The name of the method */
     public final String methodName;
+    /** The JVM signature of the method */
     public final String methodSig;
 
+    /** Simple constructor that just sets the fields */
     public MethodRef(String classSig, String methodName, String methodSig) {
       this.classSig = classSig;
       this.methodName = methodName;
       this.methodSig = methodSig;
     }
 
+    /** Create the ref from the given reflected method */
     public MethodRef(Method method) {
       this(Type.getInternalName(method.getDeclaringClass()), method.getName(), Type.getMethodDescriptor(method));
     }
 
+    /** Confirm that this method has the given return and param types or throw */
     public void assertType(Type returnType, Type... paramTypes) {
       Type actualReturnType = Type.getReturnType(methodSig);
       if (!returnType.equals(actualReturnType))
