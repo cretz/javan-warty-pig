@@ -61,6 +61,21 @@ project(':fuzz') {
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
     }
+    javadoc {
+        options.links 'https://docs.oracle.com/javase/8/docs/api/'
+    }
+    task packageJavadoc(type: Jar, dependsOn: 'javadoc') {
+        from javadoc.destinationDir
+        classifier = 'javadoc'
+    }
+    task packageSources(type: Jar, dependsOn: 'classes') {
+        from sourceSets.main.allSource
+        classifier = 'sources'
+    }
+    artifacts {
+        archives packageJavadoc
+        archives packageSources
+    }
 }
 
 project(':extras') {
