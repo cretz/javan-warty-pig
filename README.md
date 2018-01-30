@@ -33,3 +33,4 @@ TODO: Write this...
 * Support remote workers
 * Expose stats and a UI
 * Create CLI
+* Support "auto extras", i.e. auto-created dictionaries

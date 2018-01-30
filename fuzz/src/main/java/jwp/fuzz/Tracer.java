@@ -3,14 +3,20 @@ package jwp.fuzz;
 import java.util.Arrays;
 import java.util.Map;
 
-/** TODO: javadoc */
+/** Base interface for all tracers. The primary implementation is {@link Instrumenting}. */
 public interface Tracer {
 
+  /** Start a trace on the given thread. This should throw if already being traced. */
   void startTrace(Thread thread);
 
   // This should never throw! The result should be sorted.
+  /**
+   * Stop the trace on the given thread. If there is not a trace on the given thread, this should return null. The
+   * resulting array from this trace should be sorted using {@link BranchHit}'s set ordering.
+   */
   BranchHit[] stopTrace(Thread thread);
 
+  /** Main tracer using instrumenting */
   class Instrumenting implements Tracer {
     @Override
     public void startTrace(Thread thread) {

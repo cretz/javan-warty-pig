@@ -26,6 +26,7 @@ public class MethodBranchAdapter extends MethodNode {
   private final MethodRefs refs;
   private final String className;
   private final MethodVisitor mv;
+  private boolean alreadyTransformed;
 
   /**
    * Create this adapter with a set of {@link MethodRefs}, the internal class name for the method, values given from
@@ -56,7 +57,19 @@ public class MethodBranchAdapter extends MethodNode {
   }
 
   @Override
+  public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
+    super.visitMethodInsn(opcode, owner, name, desc, itf);
+    // We have to mark this method as already transformed if there is a call to refs sig
+    if (refs.commonClassSig.equals(owner)) alreadyTransformed = true;
+  }
+
+  @Override
   public void visitEnd() {
+    if (alreadyTransformed) {
+      System.err.println("Skipping already transformed method " + className + ":" + name);
+      accept(mv);
+      return;
+    }
     // We need the handler labels for catch clauses
     Set<Label> catchHandlerLabels = new HashSet<>(tryCatchBlocks.size());
     for (TryCatchBlockNode catchBlock : tryCatchBlocks) catchHandlerLabels.add(catchBlock.handler.getLabel());
@@ -140,13 +153,21 @@ public class MethodBranchAdapter extends MethodNode {
     /** The builder to create the {@link MethodRefs} */
     public static Builder builder() { return new Builder(); }
 
+    /**
+     * The JVM internal class sig that, if seen in a static method call, considers the method already transformed. This
+     * is set as the same one that is shared by all methods.
+     */
+    public final String commonClassSig;
     private final MethodRef[] refsByOpcode;
 
-    private MethodRefs(MethodRef[] refsByOpcode) { this.refsByOpcode = refsByOpcode; }
+    private MethodRefs(String commonClassSig, MethodRef[] refsByOpcode) {
+      this.commonClassSig = commonClassSig;
+      this.refsByOpcode = refsByOpcode;
+    }
 
     /**
      * The builder to create a {@link MethodRefs} instance. This does validation to make sure all proper methods are set
-     * and are of the proper type.
+     * and are of the proper type. And it makes sure that all methods are defined in the same class.
      */
     public static class Builder {
       private static final Type OBJECT_TYPE = Type.getType(Object.class);
@@ -190,21 +211,27 @@ public class MethodBranchAdapter extends MethodNode {
       /**
        * Set a specific {@link MethodRef} for a specific opcode. Each branching opcode must have a method set and it
        * must have an accurate set of parameters. For the catch handler, it should be assigned to the ATHROW
-       * opcode. Validation does not occur until {@link #build()}
+       * opcode. Validation does not occur until {@link #build()}. It is an error to call this multiple times with
+       * method refs that are defined on different classes.
        */
       public void set(int opcode, MethodRef ref) { refsByOpcode[opcode] = ref; }
 
       /** Validate and build the refs */
       public MethodRefs build() {
         // Do validity checks
+        String commonClassSig = null;
         for (int i = 0; i < validityCheckers.length; i++) {
           Consumer<MethodRef> check = validityCheckers[i];
           MethodRef ref = refsByOpcode[i];
           if (ref != null && check == null) throw new RuntimeException("Expecting no ref for opcode " + i);
           if (ref == null && check != null) throw new RuntimeException("Expecting ref for opcode " + i);
-          if (check != null) check.accept(ref);
+          if (check != null) {
+            check.accept(ref);
+            if (commonClassSig == null) commonClassSig = ref.classSig;
+            else if (!commonClassSig.equals(ref.classSig)) throw new RuntimeException("All methods not on same class");
+          }
         }
-        return new MethodRefs(refsByOpcode);
+        return new MethodRefs(commonClassSig, refsByOpcode);
       }
     }
   }

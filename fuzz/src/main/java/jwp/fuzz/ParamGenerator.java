@@ -9,25 +9,54 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.*;
 
+/**
+ * Base interface for all parameter generators. A parameter generator is a generator that provides parameter values as
+ * an iterator. The iterator can be infinite as specified by {@link #isInfinite()}. Implementors only have to implement
+ * {@link #iterator()} and {@link #isInfinite()}. All generators should have {@link #close()} called when it is no
+ * longer in use. There are static helpers for generators of common types.
+ */
 public interface ParamGenerator<T> extends AutoCloseable {
 
   // Guaranteed to be iterated in a single thread.
+  /**
+   * Create a new iterator for the parameter type. The iterator returned here is guaranteed to be iterated by a single
+   * thread. It is not guaranteed to complete. Also, callers may invoke this many times.
+   */
   Iterator<T> iterator();
 
   /** Whether the result of {@link #iterator()} ever terminates */
   boolean isInfinite();
 
-  // Note, myParam is not necessarily the same type as result.params[myParamIndex] because
-  // it may be mapped.
-  default void onComplete(ExecutionResult result, int myParamIndex, T myParam) { }
+  /**
+   * Called when an execution is complete with a parameter that came from this generator. It could be called with the
+   * same value if the value was reused, meaning the iterator may not have iterated multiple times even though this is
+   * called multiple times. This default implementation does nothing.
+   * <p>
+   * Due to the fact that the generator may have its value mapped further down the line, the parameter in the "result"
+   * at the "myParamIndex" may not be the same value. This is why "myParam" is provided. Due to way the mapping works
+   * on {@link #affectedStream(Function, Function)}, the value of "myValue" may not be the exact same object used as the
+   * parameter. Instead it is just mapped back from what was actually used.
+   */
+  default void onResult(ExecutionResult result, int myParamIndex, T myParam) { }
 
+  /**
+   * Closes the generator. This should be called when the generator is no longer used. This default implementation does
+   * nothing.
+   */
   @Override
   default void close() throws Exception { }
 
+  /** Delegates to {@link #affectedStream(Function, Function)} with an identity change-back mapper */
   default ParamGenerator<T> affectedStream(Function<Stream<T>, Stream<T>> changeFn) {
     return affectedStream(changeFn, Function.identity());
   }
 
+  /**
+   * Create a new parameter generator with the given change and change-back functions. The change function accepts
+   * streams so the implementor can choose to filter, add, or do other things while running. The change-back function
+   * is a simple mapper that is called on result to change a parameter back so this base parameter generator's
+   * {@link #onResult(ExecutionResult, int, Object)} gets an accurate value.
+   */
   default <U> ParamGenerator<U> affectedStream(Function<Stream<T>, Stream<U>> changeFn,
       Function<U, T> onCompleteChangeParamBackFn) {
     final ParamGenerator<T> self = this;
@@ -42,8 +71,8 @@ public interface ParamGenerator<T> extends AutoCloseable {
       public boolean isInfinite() { return self.isInfinite(); }
 
       @Override
-      public void onComplete(ExecutionResult result, int myParamIndex, U myParam) {
-        self.onComplete(result, myParamIndex, onCompleteChangeParamBackFn.apply(myParam));
+      public void onResult(ExecutionResult result, int myParamIndex, U myParam) {
+        self.onResult(result, myParamIndex, onCompleteChangeParamBackFn.apply(myParam));
       }
 
       @Override
@@ -51,36 +80,50 @@ public interface ParamGenerator<T> extends AutoCloseable {
     };
   }
 
+  /**
+   * Delegates to {@link #affectedStream(Function, Function)} ignoring all null values in the stream. This is useful
+   * to ignore some items while mapping.
+   */
   default <U> ParamGenerator<U> mapNotNull(Function<T, U> fnTo, Function<U, T> fnFrom) {
     return affectedStream(s -> s.map(fnTo).filter(Objects::nonNull), fnFrom);
   }
 
+  /** Delegates to {@link #affectedStream(Function)} using the given predicate on the stream */
   default ParamGenerator<T> filter(Predicate<T> pred) {
     return affectedStream(s -> s.filter(pred));
   }
 
-  static ParamGenerator<? super Object> suggestedFixed(Class<?> cls) {
+  /**
+   * Get a finite parameter generator for the given class. Only some classes are supported. An exception is thrown if a
+   * class is not supported.
+   */
+  static ParamGenerator<? super Object> suggestedFinite(Class<?> cls) {
     if (cls == Boolean.TYPE) return of(true, false);
     if (cls == Boolean.class) return of(null, true, false);
-    if (cls == Byte.TYPE) return ofFixed(ParamGenerator::interestingBytes);
-    if (cls == Byte.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingBytes().boxed()));
-    if (cls == Short.TYPE) return ofFixed(ParamGenerator::interestingShorts);
-    if (cls == Short.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingShorts().boxed()));
-    if (cls == Integer.TYPE) return ofFixed(ParamGenerator::interestingInts);
-    if (cls == Integer.class) return ofFixed(() -> Stream.concat(Stream.of((Integer) null), interestingInts().boxed()));
-    if (cls == Long.TYPE) return ofFixed(ParamGenerator::interestingLongs);
-    if (cls == Long.class) return ofFixed(() -> Stream.concat(Stream.of((Long) null), interestingLongs().boxed()));
-    if (cls == Float.TYPE) return ofFixed(ParamGenerator::interestingFloats);
-    if (cls == Float.class) return ofFixed(() -> Stream.concat(Stream.of((Float) null), interestingFloats().boxed()));
-    if (cls == Double.TYPE) return ofFixed(ParamGenerator::interestingDoubles);
+    if (cls == Byte.TYPE) return ofFinite(ParamGenerator::interestingBytes);
+    if (cls == Byte.class) return ofFinite(() -> Stream.concat(Stream.of((Integer) null), interestingBytes().boxed()));
+    if (cls == Short.TYPE) return ofFinite(ParamGenerator::interestingShorts);
+    if (cls == Short.class) return ofFinite(() -> Stream.concat(Stream.of((Integer) null), interestingShorts().boxed()));
+    if (cls == Integer.TYPE) return ofFinite(ParamGenerator::interestingInts);
+    if (cls == Integer.class) return ofFinite(() -> Stream.concat(Stream.of((Integer) null), interestingInts().boxed()));
+    if (cls == Long.TYPE) return ofFinite(ParamGenerator::interestingLongs);
+    if (cls == Long.class) return ofFinite(() -> Stream.concat(Stream.of((Long) null), interestingLongs().boxed()));
+    if (cls == Float.TYPE) return ofFinite(ParamGenerator::interestingFloats);
+    if (cls == Float.class) return ofFinite(() -> Stream.concat(Stream.of((Float) null), interestingFloats().boxed()));
+    if (cls == Double.TYPE) return ofFinite(ParamGenerator::interestingDoubles);
     if (cls == Double.class)
-      return ofFixed(() -> Stream.concat(Stream.of((Double) null), interestingDoubles().boxed()));
+      return ofFinite(() -> Stream.concat(Stream.of((Double) null), interestingDoubles().boxed()));
     if (cls == Character.TYPE) throw new UnsupportedOperationException("TODO");
     if (cls == Character.class) throw new UnsupportedOperationException("TODO");
     throw new IllegalArgumentException("No suggested generator for " + cls);
   }
 
-  static <T> ParamGenerator<T> ofFixed(Supplier<BaseStream> streamSupplier) {
+  /**
+   * Create a finite parameter generator from the given stream supplier with a no-op {@link #close()} and
+   * {@link #onResult(ExecutionResult, int, Object)}. The supplier is invoked every time {@link #iterator()} is
+   * invoked.
+   */
+  static <T> ParamGenerator<T> ofFinite(Supplier<BaseStream> streamSupplier) {
     return new ParamGenerator<T>() {
       @Override
       @SuppressWarnings("unchecked")
@@ -91,9 +134,11 @@ public interface ParamGenerator<T> extends AutoCloseable {
     };
   }
 
+  /** Create finite parameter gen from values via {@link #ofFinite(Supplier)} */
   @SafeVarargs
-  static <T> ParamGenerator<T> of(T... items) { return ofFixed(() -> Stream.of(items)); }
+  static <T> ParamGenerator<T> of(T... items) { return ofFinite(() -> Stream.of(items)); }
 
+  /** An int stream of interesting byte values */
   static IntStream interestingBytes() {
     return IntStream.concat(
         IntStream.of(Byte.MIN_VALUE, 64, 100, Byte.MAX_VALUE),
@@ -101,6 +146,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
     );
   }
 
+  /** An int stream of interesting short values. Includes {@link #interestingBytes()}. */
   static IntStream interestingShorts() {
     return IntStream.concat(
         interestingBytes(),
@@ -108,6 +154,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
     );
   }
 
+  /** An int stream of interesting int values. Includes {@link #interestingShorts()}. */
   static IntStream interestingInts() {
     return IntStream.concat(
         interestingShorts(),
@@ -115,6 +162,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
     );
   }
 
+  /** A long stream of interesting long values. Includes {@link #interestingLongs()}. */
   static LongStream interestingLongs() {
     return LongStream.concat(
         interestingInts().asLongStream(),
@@ -122,6 +170,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
     );
   }
 
+  /** A double stream of interesting float values. Includes {@link #interestingLongs()}. */
   static DoubleStream interestingFloats() {
     return DoubleStream.concat(
         interestingLongs().asDoubleStream(),
@@ -130,6 +179,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
     );
   }
 
+  /** A double stream of interesting doubles. Includes {@link #interestingFloats()} */
   static DoubleStream interestingDoubles() {
     return DoubleStream.concat(
         interestingFloats(),

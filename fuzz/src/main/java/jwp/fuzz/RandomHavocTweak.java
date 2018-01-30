@@ -6,11 +6,23 @@ import static jwp.fuzz.Util.*;
 
 // Should not store any mutable state
 /** TODO: javadoc */
+
+/**
+ * Base interface for tweaks that occur as part of {@link ByteArrayStage.RandomHavoc}. They are usually only
+ * instantiated once, so they should not store any cross-"apply" state. Many tweaks can occur within a single
+ * random havoc iteration. The tweaks are created/set in {@link ByteArrayParamGenerator.Config#havocTweaksCreator} and
+ * they use the random at {@link ByteArrayParamGenerator.Config#random}.
+ */
 @FunctionalInterface
 public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, byte[], byte[]> {
-  // The given byte array can be mutated and returned safely. Or a brand new array can be returned.
+  /**
+   * Apply the tweak to the given bytes. The given array can be mutated safely and returned and/or a new array can be
+   * returned.
+   */
+  @Override
   byte[] apply(ByteArrayParamGenerator gen, byte[] bytes);
 
+  /** Base class for tweaks that only mutate the given array */
   abstract class MutBytesInPlace implements RandomHavocTweak {
     @Override
     public byte[] apply(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -21,6 +33,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     public abstract void tweak(ByteArrayParamGenerator gen, byte[] bytes);
   }
 
+  /** Flip a bit in a random location */
   class FlipSingleBit extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -28,6 +41,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Base class for tweaks that do something to a random byte */
   abstract class RandomByte extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -38,6 +52,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     public abstract byte tweak(ByteArrayParamGenerator gen, byte b);
   }
 
+  /** Set a random value from {@link ParamGenerator#interestingBytes()} in a random location */
   class InterestingByte extends RandomByte {
     protected static final byte[] interestingBytes = streamToByteArray(ParamGenerator.interestingBytes());
 
@@ -47,6 +62,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Base class for tweaks that do something to a random two-byte set */
   abstract class RandomShort extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -59,6 +75,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     public abstract short tweak(ByteArrayParamGenerator gen, short s);
   }
 
+  /** Set a random value from {@link ParamGenerator#interestingShorts()} in a random location */
   class InterestingShort extends RandomShort {
     protected static final short[] interestingShorts = streamToShortArray(ParamGenerator.interestingShorts());
 
@@ -68,6 +85,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Base class for tweaks that do something to a random four-byte set */
   abstract class RandomInt extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -80,6 +98,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     public abstract int tweak(ByteArrayParamGenerator gen, int i);
   }
 
+  /** Set a random value from {@link ParamGenerator#interestingInts()} in a random location */
   class InterestingInt extends RandomInt {
     protected static final int[] interestingInts = ParamGenerator.interestingInts().toArray();
 
@@ -89,6 +108,10 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Subtract a random single-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random
+   * location
+   */
   class SubtractFromByte extends RandomByte {
     @Override
     public byte tweak(ByteArrayParamGenerator gen, byte b) {
@@ -96,6 +119,9 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Add a random single-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random location
+   */
   class AddToByte extends RandomByte {
     @Override
     public byte tweak(ByteArrayParamGenerator gen, byte b) {
@@ -103,6 +129,9 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Subtract a random two-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random location
+   */
   class SubtractFromShort extends RandomShort {
     @Override
     public short tweak(ByteArrayParamGenerator gen, short s) {
@@ -110,6 +139,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Add a random two-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random location */
   class AddToShort extends RandomShort {
     @Override
     public short tweak(ByteArrayParamGenerator gen, short s) {
@@ -117,6 +147,10 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Subtract a random four-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random
+   * location
+   */
   class SubtractFromInt extends RandomInt {
     @Override
     public int tweak(ByteArrayParamGenerator gen, int i) {
@@ -124,6 +158,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Add a random four-byte value between 1 and {@link ByteArrayParamGenerator.Config#arithMax} in a random location */
   class AddToInt extends RandomInt {
     @Override
     public int tweak(ByteArrayParamGenerator gen, int i) {
@@ -131,6 +166,7 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /** Set a random byte value in a random location */
   class SetRandomByte extends RandomByte {
     @Override
     public byte tweak(ByteArrayParamGenerator gen, byte b) {
@@ -141,6 +177,10 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Delete a set of bytes with size specified by {@link ByteArrayParamGenerator#randomBlockLength(int)} from a random
+   * location
+   */
   class DeleteBytes implements RandomHavocTweak {
     @Override
     public byte[] apply(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -151,6 +191,12 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Clone or insert a set of bytes with size specified by {@link ByteArrayParamGenerator#randomBlockLength(int)} at a
+   * random location. Whether cloning or inserting is random, with cloning being three times as likely. Where to clone
+   * from is randomly selected. When inserting, this (evenly) randomly chooses whether to use all of a new random byte
+   * or to use all of another randomly selected byte.
+   */
   class CloneOrInsertBytes implements RandomHavocTweak {
     @Override
     public byte[] apply(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -180,6 +226,12 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Overwrite existing bytes with another randomly selected set out of the original or with a new set. Whether it uses
+   * another set from the original or a new set is random with the former three times as likely. When using a new set,
+   * this (evenly) randomly chooses whether to use all of a new random byte or to use all of another randomly selected
+   * byte.
+   */
   class OverwriteRandomOrFixedBytes extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -198,6 +250,10 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+  /**
+   * Overwrite existing bytes at a random location with a randomly selected entry in the
+   * {@link ByteArrayParamGenerator.Config#dictionary}
+   */
   class OverwriteWithDictionary extends MutBytesInPlace {
     @Override
     public void tweak(ByteArrayParamGenerator gen, byte[] bytes) {
@@ -209,6 +265,10 @@ public interface RandomHavocTweak extends BiFunction<ByteArrayParamGenerator, by
     }
   }
 
+
+  /**
+   * Insert a randomly selected entry at a random location using the {@link ByteArrayParamGenerator.Config#dictionary}
+   */
   class InsertWithDictionary implements RandomHavocTweak {
     @Override
     public byte[] apply(ByteArrayParamGenerator gen, byte[] bytes) {

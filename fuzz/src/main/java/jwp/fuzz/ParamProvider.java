@@ -6,31 +6,53 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-/** TODO: javadoc */
+/**
+ * Base class for all parameter providers. A parameter provider provides full sets of parameters based on individual
+ * parameter generators. Implementors only have to override {@link #iterator()} and have to call the
+ * {@link #ParamProvider(ParamGenerator[])} constructor. Parameter providers should have {@link #close()} when they are
+ * no longer in use. There are several nested classes to help.
+ */
 public abstract class ParamProvider implements AutoCloseable {
+  /**
+   * The immutable set of parameter generators that are closed when this is and have their
+   * {@link ParamGenerator#onResult(ExecutionResult, int, Object)} called via {@link #onResult(ExecutionResult)}.
+   */
   public final ParamGenerator[] paramGenerators;
 
   public ParamProvider(ParamGenerator... paramGenerators) {
     this.paramGenerators = paramGenerators;
   }
 
-  // Can trust the array is not edited (so it can be reused). No guarantees about the values inside though.
+  /**
+   * Create a new iterator for parameter sets. Implementors can trust that the parameter array is copied before use so
+   * the same object array can be returned over and over. Of course there are no guarantees about the objects inside the
+   * arrays though. This iterator may be called multiple times.
+   */
   public abstract Iterator<Object[]> iterator();
 
+  /**
+   * Called on completion of an execution and the default implementation simply delegates to
+   * {@link ParamGenerator#onResult(ExecutionResult, int, Object)}
+   */
   @SuppressWarnings("unchecked")
   public void onResult(ExecutionResult result) {
     for (int i = 0; i < paramGenerators.length; i++) {
-      paramGenerators[i].onComplete(result, i, result.params[i]);
+      paramGenerators[i].onResult(result, i, result.params[i]);
     }
   }
 
+  /** Delegates to {@link ParamGenerator#close()} */
   @Override
   public void close() throws Exception {
     for (ParamGenerator paramGen : paramGenerators) paramGen.close();
   }
 
-  // Makes infinite ones change one at a time evenly amongst each other forever. Makes the first 3 non-infinite
-  // ones use all permutations amongst each other. Makes the rest do random single changes.
+  /**
+   * A parameter provided that does suggested uses of generators. For every infinite generator, it uses
+   * {@link EvenSingleParamChange} which changes only one parameter at a time across them, left to right. For the first
+   * three finite generators, it uses {@link AllPermutations}. For the rest, it uses {@link RandomSingleParamChange}
+   * which changes only one parameter at a time across them, but which one is changed is random.
+   */
   public static class Suggested extends ParamProvider {
     protected final ParamProvider prov;
 
@@ -42,7 +64,7 @@ public abstract class ParamProvider implements AutoCloseable {
           EvenSingleParamChange::new,
           gensFixed -> new Partitioned(
               gensFixed,
-              (index, gen) -> index < 4,
+              (index, gen) -> index < 3,
               AllPermutations::new,
               RandomSingleParamChange::new
           )
@@ -53,12 +75,21 @@ public abstract class ParamProvider implements AutoCloseable {
     public Iterator<Object[]> iterator() { return prov.iterator(); }
   }
 
+  /**
+   * A partitioned parameter provider that delegates to other parameter providers based on a delegate. See the
+   * constructor for more details.
+   */
   public static class Partitioned extends ParamProvider {
+    /** The predicate to determine which provider to use */
     public final BiPredicate<Integer, ParamGenerator> predicate;
+    /** Which parameter provider to use when the predicate is true */
     public final Function<ParamGenerator[], ParamProvider> trueProvider;
+    /** Which parameter provider to use when the predicate is true */
     public final Function<ParamGenerator[], ParamProvider> falseProvider;
+    /** Stops the iterator if both sub-providers have ended at least once */
     public final boolean stopWhenBothHaveEndedOnce;
 
+    /** Delegates to other constructor and sets it to * stop when both providers have completed once */
     public Partitioned(ParamGenerator[] paramGenerators,
         BiPredicate<Integer, ParamGenerator> predicate,
         Function<ParamGenerator[], ParamProvider> trueProvider,
@@ -66,6 +97,13 @@ public abstract class ParamProvider implements AutoCloseable {
       this(paramGenerators, predicate, trueProvider, falseProvider, true);
     }
 
+    /**
+     * Create a partitioned provider. The predicate is called with the index and the parameter generator from the
+     * initial generator array. If true, it will call and use the resulting provider from the "trueProvider" function.
+     * If false, it will call and use the resulting provider from the "falseProvider" function.
+     * If "stopWhenBothHaveEnded" is true, this provider's iterator ends when both of the sub-providers have completed
+     * at least once.
+     */
     public Partitioned(ParamGenerator[] paramGenerators,
         BiPredicate<Integer, ParamGenerator> predicate,
         Function<ParamGenerator[], ParamProvider> trueProvider,
@@ -131,13 +169,20 @@ public abstract class ParamProvider implements AutoCloseable {
     }
   }
 
+  /** A parameter provider that evenly iterates over the given generators from left to right */
   public static class EvenAllParamChange extends ParamProvider {
+    /** Whether to end the provider when all generators have completed at least once */
     public final boolean completeWhenAllCycledAtLeastOnce;
 
+    /** Delegates to other constructor setting true for "completeWhenAllCycledAtLeastOnce" */
     public EvenAllParamChange(ParamGenerator... paramGenerators) {
       this(paramGenerators, true);
     }
 
+    /**
+     * Create a provider that evenly iterates the generators on each iteration. If "completeWhenAllCycledAtLeastOnce" is
+     * true, this provider ends when all of the generators have completed at least once.
+     */
     public EvenAllParamChange(ParamGenerator[] paramGenerators, boolean completeWhenAllCycledAtLeastOnce) {
       super(paramGenerators);
       this.completeWhenAllCycledAtLeastOnce = completeWhenAllCycledAtLeastOnce;
@@ -175,14 +220,21 @@ public abstract class ParamProvider implements AutoCloseable {
     }
   }
 
-  // Changes one parameter at a time, left to right
+  /** A parameter provider that iterates only one parameter at a time from left to right */
   public static class EvenSingleParamChange extends ParamProvider {
+    /** Whether to complete the provider when all generators have completed at least once */
     public final boolean completeWhenAllCycledAtLeastOnce;
 
+    /** Delegates to other constructor with true set for "completeWhenAllCycledAtLeastOnce" */
     public EvenSingleParamChange(ParamGenerator... paramGenerators) {
       this(paramGenerators, true);
     }
 
+    /**
+     * Create a parameter provider that iterates one generator at a time on each iteration, from left to right. If
+     * "completeWhenAllCycledAtLeastOnce" is true, this provider will be complete when each generator has completed at
+     * least once.
+     */
     public EvenSingleParamChange(ParamGenerator[] paramGenerators, boolean completeWhenAllCycledAtLeastOnce) {
       super(paramGenerators);
       this.completeWhenAllCycledAtLeastOnce = completeWhenAllCycledAtLeastOnce;
@@ -230,7 +282,9 @@ public abstract class ParamProvider implements AutoCloseable {
     }
   }
 
+  /** A parameter provider that generates all permutations of the generators */
   public static class AllPermutations extends ParamProvider {
+    /** Create the provider to use every permutation of the given generators */
     public AllPermutations(ParamGenerator... paramGenerators) {
       super(paramGenerators);
     }
@@ -259,15 +313,34 @@ public abstract class ParamProvider implements AutoCloseable {
     }
   }
 
+  /** A parameter provider that randomly iterates just one generator per iteration and avoids duplicates */
   public static class RandomSingleParamChange extends ParamProvider {
+    /** The random to use to determine which generator to iterate */
     public final Random random;
+    /**
+     * An internal hash set is used to keep track of the indices of each generator we have tried before. This value is
+     * the number of these generator-index-sets to keep before clearing out the set and starting over.
+     */
     public final int hashSetMaxBeforeReset;
+    /**
+     * Every attempted parameter set is checked against a hash set to see if it has been seen before. This value sets
+     * the maximum number of parameter-set duplicates it will tolerate before ending the provider.
+     */
     public final int maxDupeGenBeforeQuit;
 
+    /**
+     * Delegates to other constructor using {@link Random#Random()}, "hashSetMaxBeforeReset" as 20000, and
+     * "maxDupeGenBeforeQuit" as 200
+     */
     public RandomSingleParamChange(ParamGenerator... paramGenerators) {
       this(paramGenerators, new Random(), 20000, 200);
     }
 
+    /**
+     * Create a new parameter provider that randomly iterates a single generator on each iteration and avoids
+     * duplicates. The decision of which generator to iterate uses the given random. See {@link #hashSetMaxBeforeReset}
+     * and {@link #maxDupeGenBeforeQuit} fields for information on their use.
+     */
     public RandomSingleParamChange(ParamGenerator[] paramGenerators,
         Random random, int hashSetMaxBeforeReset, int maxDupeGenBeforeQuit) {
       super(paramGenerators);

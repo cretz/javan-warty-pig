@@ -119,7 +119,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
   /** Puts param on input queue if result has never been seen before */
   @Override
-  public void onComplete(ExecutionResult result, int myParamIndex, byte[] myParam) {
+  public void onResult(ExecutionResult result, int myParamIndex, byte[] myParam) {
     // If it's a unique path, then our param goes to the input queue if it's not null
     if (myParam == null) return;
     if (seenBranchesCache.checkUniqueAndStore(config.hasher.hash(result.branchHits))) {
@@ -560,8 +560,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
       /**
        * This culls {@link #queue}. The caller should have synchronized on the {@link #queue} before calling this. By
-       * default, this is called from {@link #dequeue()} if {@link #enqueue(TestCase)} has been called since last
-       * dequeue.
+       * default, this is called from {@link #dequeue()} if enqueue(TestCase) has been called since last dequeue.
        * <p>
        * The goal of the culling process is to sort the queue where the top items ran the quickest with the smallest
        * input and contain a first-seen single branch. This is done by first sorting the queue by the

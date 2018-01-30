@@ -14,7 +14,7 @@ public class FuzzerTest {
   public void testWrongArgs() throws Throwable {
     new Fuzzer(Fuzzer.Config.builder().
         method(TestMethods.class.getDeclaredMethod("simpleMethod", Integer.TYPE, Boolean.TYPE)).
-        params(new ParamProvider.Suggested(ParamGenerator.suggestedFixed(Boolean.TYPE))).build()
+        params(new ParamProvider.Suggested(ParamGenerator.suggestedFinite(Boolean.TYPE))).build()
     ).fuzz();
   }
 
@@ -27,8 +27,8 @@ public class FuzzerTest {
     Fuzzer fuzzer = new Fuzzer(Fuzzer.Config.builder().
         method(TestMethods.class.getDeclaredMethod("simpleMethod", Integer.TYPE, Boolean.TYPE)).
         params(new ParamProvider.Suggested(
-            ParamGenerator.suggestedFixed(Integer.TYPE),
-            ParamGenerator.suggestedFixed(Boolean.TYPE)
+            ParamGenerator.suggestedFinite(Integer.TYPE),
+            ParamGenerator.suggestedFinite(Boolean.TYPE)
         )).onSubmit((config, fut) ->  fut.thenApply(res -> {
           uniquePaths.putIfAbsent(BranchHit.Hasher.WITHOUT_HIT_COUNTS.hash(res.branchHits), res);
           return res;

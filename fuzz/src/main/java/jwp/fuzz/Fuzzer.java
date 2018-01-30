@@ -22,7 +22,7 @@ public class Fuzzer {
 
   /**
    * Run the fuzzer for the given amount of time
-   * @see {@link #fuzz(AtomicBoolean)}
+   * @see #fuzz(AtomicBoolean)
    */
   public void fuzzFor(long time, TimeUnit unit) throws Throwable {
     AtomicBoolean stopper = new AtomicBoolean();
@@ -35,7 +35,7 @@ public class Fuzzer {
 
   /**
    * Run the fuzzer with no timeout
-   * @see {@link #fuzz(AtomicBoolean)}
+   * @see #fuzz(AtomicBoolean)
    */
   public void fuzz() throws Throwable { fuzz(new AtomicBoolean()); }
 

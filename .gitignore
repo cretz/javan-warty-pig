@@ -1,9 +1,5 @@
 /javan-warty-pig.iml
 /.gradle
 /.idea
-/agent/build
-/examples/simple/build
-/fuzz/build
+build/
 /examples/csv/src/test/java/jwp/examples/csv/MainTest.java
-/examples/csv/build
-/extras/build

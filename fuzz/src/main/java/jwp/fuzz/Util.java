@@ -16,7 +16,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-/** TODO: javadoc */
+/** Utility functions and classes */
 public class Util {
   public static byte byte0(short val) { return (byte) val; }
   public static byte byte1(short val) { return (byte) (val >> 8); }
@@ -206,6 +206,7 @@ public class Util {
     return ret;
   }
 
+  /** An executor service that only runs submissions on the current thread */
   public static class CurrentThreadExecutorService extends ThreadPoolExecutor {
     public CurrentThreadExecutorService() {
       super(0, 1, 0, TimeUnit.SECONDS,
@@ -216,10 +217,12 @@ public class Util {
     public void execute(Runnable command) { getRejectedExecutionHandler().rejectedExecution(command, this); }
   }
 
+  /** Base iterator that is considered finished the first time it sees a null */
   public static abstract class NullMeansCompleteIterator<T> implements Iterator<T> {
     protected T prev;
     protected boolean finished = false;
 
+    /** Provide the next item or null to finish this iterator */
     protected abstract T doNext();
 
     @Override

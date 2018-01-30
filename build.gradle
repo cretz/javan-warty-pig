@@ -26,12 +26,17 @@ allprojects {
         from javadoc.destinationDir
         classifier = 'javadoc'
     }
+    artifacts {
+        archives packageJavadoc
+    }
+}
+
+subprojects {
     task packageSources(type: Jar, dependsOn: 'classes') {
         from sourceSets.main.allSource
         classifier = 'sources'
     }
     artifacts {
-        archives packageJavadoc
         archives packageSources
     }
 }
@@ -56,7 +61,7 @@ project(':agent') {
         }
     }
     test {
-        dependsOn 'shadowJar'
+        dependsOn 'compileJava', 'shadowJar'
         jvmArgs '-javaagent:build/libs/jwp-agent.jar'
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
@@ -165,3 +170,13 @@ project(':examples:simple') {
     mainClassName = 'jwp.examples.simple.Main'
     run.jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
 }
+
+
+javadoc {
+    def javadocProjects = [':fuzz', ':extras']
+    source javadocProjects.collect { project(it).sourceSets.main.allJava }
+    classpath = files(javadocProjects.collect { project(it).sourceSets.main.compileClasspath })
+    destinationDir = file("${buildDir}/docs/javadoc")
+}
+
+configurations.archives.artifacts.removeAll { it.archiveTask.is jar }

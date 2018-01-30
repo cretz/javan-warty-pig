@@ -48,10 +48,7 @@ public interface Invoker {
     }
   }
 
-  /**
-   * An implementation of {@link Invoker} using an {@link ExecutorService}. See
-   * {@link #WithExecutorService(ExecutorService)} for details about the executor services that can be used.
-   */
+  /** An implementation of {@link Invoker} using an {@link ExecutorService}. See the constructor for more details. */
   class WithExecutorService implements Invoker {
     /** The executor service this is using */
     public final ExecutorService exec;
