@@ -172,6 +172,7 @@ project(':examples:htmlsan') {
     run.jvmArgs '-javaagent:../../agent/build/libs/jwp-agent.jar'
     dependencies {
         compile 'com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20171016.1'
+        compile 'org.owasp.encoder:encoder:1.2.1'
     }
 }
 
