@@ -3,4 +3,5 @@ include 'agent',
         'extras',
         'fuzz',
         'examples:csv',
+        'examples:htmlsan',
         'examples:simple'

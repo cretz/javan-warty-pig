@@ -609,5 +609,24 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       this.nanoTime = nanoTime;
       score = bytes.length * nanoTime;
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      TestCase testCase = (TestCase) o;
+      return nanoTime == testCase.nanoTime &&
+          score == testCase.score &&
+          Arrays.equals(bytes, testCase.bytes) &&
+          Arrays.equals(branchHits, testCase.branchHits);
+    }
+
+    @Override
+    public int hashCode() {
+      int result = Objects.hash(nanoTime, score);
+      result = 31 * result + Arrays.hashCode(bytes);
+      result = 31 * result + Arrays.hashCode(branchHits);
+      return result;
+    }
   }
 }

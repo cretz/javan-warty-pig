@@ -3,15 +3,11 @@ package jwp.extras;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
-
 public class AflDictionaryTest {
 
   @Test
-  public void testSimpleDictionary() throws Exception {
-    AflDictionary dict = AflDictionary.read(Files.readAllLines(
-        Paths.get(getClass().getResource("gif.dict").toURI())));
+  public void testSimpleDictionary() {
+    AflDictionary dict = AflDictionary.read(getClass().getResource("gif.dict"));
     Assert.assertEquals(9, dict.entries.size());
     Assert.assertEquals(new AflDictionary.Entry("header_89a", 35, "89a".getBytes()), dict.entries.get(1));
     Assert.assertEquals(new AflDictionary.Entry("marker_3b", null, ";".getBytes()), dict.entries.get(4));

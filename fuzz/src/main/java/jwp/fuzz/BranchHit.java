@@ -39,6 +39,21 @@ public class BranchHit implements Comparable<BranchHit> {
     return o == null ? -1 : Integer.compare(branchHash, o.branchHash);
   }
 
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    BranchHit branchHit = (BranchHit) o;
+    return branchHash == branchHit.branchHash &&
+        hitCount == branchHit.hitCount &&
+        withHitCountHash == branchHit.withHitCountHash;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(branchHash, hitCount, withHitCountHash);
+  }
+
   /** Interface for hashing {@link BranchHit}s */
   @FunctionalInterface
   public interface Hasher {

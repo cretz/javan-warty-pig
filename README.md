@@ -6,6 +6,8 @@ instrumentation to trace execution. It is written in Java.
 There was [an earlier version](https://github.com/cretz/javan-warty-pig-kotlin) started in Kotlin and Kotlin Native
 using single-step [JVMTI](https://docs.oracle.com/javase/9/docs/specs/jvmti.html), but it was abandoned.
 
+[Javadoc](https://jitpack.io/com/github/cretz/javan-warty-pig/javan-warty-pig/master-SNAPSHOT/javadoc/)
+
 ## Quick Start
 
 TODO: Write this...
@@ -34,3 +36,4 @@ TODO: Write this...
 * Expose stats and a UI
 * Create CLI
 * Support "auto extras", i.e. auto-created dictionaries
+* Support input queue trimming

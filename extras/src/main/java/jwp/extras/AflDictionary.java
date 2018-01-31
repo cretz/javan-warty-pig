@@ -1,6 +1,13 @@
 package jwp.extras;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 /** Representation of a dictionary in <a href="http://lcamtuf.coredump.cx/afl/">AFL</a> format */
@@ -25,11 +32,36 @@ public class AflDictionary {
     return new AflDictionary(Collections.unmodifiableList(entries));
   }
 
+  /** Read a dictionary from a file path. Delegates to {@link #read(Iterable)}. */
+  public static AflDictionary read(Path path) {
+    try {
+      return read(Files.readAllLines(path));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /** Read a dictionary from a URL (e.g. a resource). Ultimately delegates to {@link #read(Iterable)}. */
+  public static AflDictionary read(URL url) {
+    try {
+      return read(Paths.get(url.toURI()));
+    } catch (URISyntaxException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   /** The set of entries read */
   public final List<Entry> entries;
 
   public AflDictionary(List<Entry> entries) {
     this.entries = entries;
+  }
+
+  /** Helper for things like {@link jwp.fuzz.ByteArrayParamGenerator.Config#dictionary} */
+  public List<byte[]> listOfBytes() {
+    List<byte[]> ret = new ArrayList<>(entries.size());
+    entries.forEach(e -> ret.add(e.value));
+    return ret;
   }
 
   /** An dictionary entry */
