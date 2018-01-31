@@ -82,15 +82,15 @@ public class FilePersistenceTest {
       }
       // Size should not change during first four dequeue
       for (int i = 0; i < 4; i++) {
-        Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue())));
+        Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue().bytes)));
         Assert.assertEquals(lastMod, config.filePath.toFile().lastModified());
       }
       // Dequeue another, and confirm the last mod was changed
-      Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue())));
+      Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue().bytes)));
       long newLastMod = config.filePath.toFile().lastModified();
       Assert.assertTrue(lastMod < newLastMod);
       // Dequeue one more, no last mod change, but we expect it to save on close
-      Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue())));
+      Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(queue.dequeue().bytes)));
       Assert.assertEquals(newLastMod, config.filePath.toFile().lastModified());
     }
     // Now re-create it from file and confirm no file change and all the pieces are all there
@@ -100,9 +100,9 @@ public class FilePersistenceTest {
       Assert.assertEquals(lastMod, config.filePath.toFile().lastModified());
       // Empty the queue
       while (true) {
-        byte[] item = queue.dequeue();
+        ByteArrayParamGenerator.TestCase item = queue.dequeue();
         if (item == null) break;
-        Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(item)));
+        Assert.assertTrue(queuedByteHashes.remove(Arrays.hashCode(item.bytes)));
       }
       // And make sure our known queue is empty
       Assert.assertTrue(queuedByteHashes.isEmpty());

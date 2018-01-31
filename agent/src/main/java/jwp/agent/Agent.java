@@ -15,7 +15,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Agent implements ClassFileTransformer, AgentController.Agent {
 
   protected static final String[] CLASS_PREFIXES_TO_IGNORE_DEFAULT =
-      { "com.sun.", "java.", "jdk.", "jwp.agent.", "jwp.fuzz.", "kotlin.", "scala.", "sun." };
+      { "com.sun.", "java.", "jdk.", "jwp.agent.", "jwp.fuzz.", "kotlin.",
+          "org.netbeans.lib.profiler.", "scala.", "sun." };
   protected static final boolean RETRANSFORM_BOOTSTRAPPED_DEFAULT = true;
 
   /** Entry point delegated to from {@link AgentBootstrap#premain(String, Instrumentation)} */

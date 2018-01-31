@@ -20,7 +20,7 @@ import static jwp.fuzz.Util.*;
 public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte[], Stream<byte[]>> {
 
   /**
-   * Invoked by {@link ByteArrayParamGenerator} to generate a new byte array parameters. The passed in byte array should
+   * Invoked by {@link ByteArrayParamGenerator} to generate new byte array parameters. The passed in byte array should
    * not be mutated in any way. Instead, this should create a stream of byte arrays with each byte array starting from
    * a copy of buf. This may be called many times in many ways so implementations should take care not to store any
    * meaningful cross-invocation state. Also, due to the fact that streams can only be iterated once, this method should
@@ -28,6 +28,11 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
    * encouraged to do what they can to not generate something that has been generated before.
    */
   Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf);
+
+  /** Delegates to {@link #apply(ByteArrayParamGenerator, byte[])} */
+  default Stream<byte[]> apply(ByteArrayParamGenerator gen, ByteArrayParamGenerator.TestCase entry) {
+    return apply(gen, entry.bytes);
+  }
 
   /** Walking bit flip, flipping a configurably-consecutive amount */
   class FlipBits implements ByteArrayStage {
@@ -337,17 +342,35 @@ public interface ByteArrayStage extends BiFunction<ByteArrayParamGenerator, byte
 
     public RandomHavoc(RandomHavocTweak[] tweaks) { this.tweaks = tweaks; }
 
+    protected int cycles(ByteArrayParamGenerator gen, ByteArrayParamGenerator.TestCase entry) {
+      // Fewer runs on slower cases
+      int havocDiv;
+      // XXX: I know, we are using the time of the entry and AFL uses the average of each stage up until now, but
+      //  this is at least an ok start.
+      if (entry.nanoTime > 50_000_000) havocDiv = 10;
+      else if (entry.nanoTime > 20_000_000) havocDiv = 5;
+      else if (entry.nanoTime > 10_000_000) havocDiv = 2;
+      else havocDiv = 1;
+
+      int cycles = entry.isResultOfExecution() ? gen.config.havocCycles : gen.config.havocCyclesInit;
+      return cycles * gen.performanceScore(entry) / havocDiv / 100;
+    }
+
     @Override
-    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
-      // TODO: base havoc cycles on perf
-      return IntStream.range(0, gen.config.havocCycles).boxed().map(havocCycle -> {
-        byte[] bytes = Arrays.copyOf(buf, buf.length);
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, ByteArrayParamGenerator.TestCase entry) {
+      return IntStream.range(0, cycles(gen, entry)).boxed().map(havocCycle -> {
+        byte[] bytes = Arrays.copyOf(entry.bytes, entry.bytes.length);
         int tweakCount = (int) Math.pow(2, 1 + gen.config.random.nextInt(gen.config.havocStackPower));
         for (int i = 0; i < tweakCount; i++) {
           bytes = tweaks[gen.config.random.nextInt(tweaks.length)].apply(gen, bytes);
         }
         return bytes;
       });
+    }
+
+    @Override
+    public Stream<byte[]> apply(ByteArrayParamGenerator gen, byte[] buf) {
+      throw new UnsupportedOperationException();
     }
   }
 }

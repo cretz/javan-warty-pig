@@ -1,5 +1,6 @@
 package jwp.fuzz;
 
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.*;
@@ -72,7 +73,12 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
   protected final Object varMutex = new Object();
   protected long startMs = -1L;
   protected long queueCycle = 0;
-  protected byte[] lastEntry;
+  protected TestCase lastEntry;
+
+  protected final Object totalsMutex = new Object();
+  protected long totalExecCount = 0;
+  protected BigInteger totalExecNanoTimes = BigInteger.ZERO;
+  protected BigInteger totalExecByteSizes = BigInteger.ZERO;
 
   /** Create a new byte array generator from the given config */
   public ByteArrayParamGenerator(Config config) {
@@ -90,25 +96,25 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     if (!config.reuseLastStageAsInfinite) throw new RuntimeException("Only last-stage-infinite is supported for now");
     return Stream.generate(() -> {
       // Set the start time and safely grab the last entry
-      byte[] lastEntry;
+      TestCase lastEntry;
       synchronized (varMutex) {
         if (startMs < 0) startMs = System.currentTimeMillis();
         lastEntry = this.lastEntry;
       }
       // Try the input queue first. If nothing, try running the infinite stage with the last entry. If there is no
       // last entry, we are at the beginning and we run with the initial values.
-      byte[] entry = inputQueue.dequeue();
+      TestCase entry = inputQueue.dequeue();
       if (entry == null && lastEntry != null) return stages[stages.length - 1].apply(this, lastEntry);
       Stream<byte[]> startStream = entry == null ? config.initialValues.stream() : Stream.empty();
-      Stream<byte[]> entryStream = entry == null ? config.initialValues.stream() : Stream.of(entry);
-      return Stream.concat(startStream, entryStream.flatMap(buf -> {
+      Stream<TestCase> entryStream = entry == null ? config.initialValues.stream().map(TestCase::new) : Stream.of(entry);
+      return Stream.concat(startStream, entryStream.flatMap(currEntry -> {
         // Set the last entry and update the cycle count
         synchronized (varMutex) {
-          this.lastEntry = buf;
+          this.lastEntry = currEntry;
           queueCycle++;
         }
         // Run each stage for this buf
-        return Arrays.stream(stages).flatMap(stage -> stage.apply(this, buf));
+        return Arrays.stream(stages).flatMap(stage -> stage.apply(this, currEntry));
       }));
     }).flatMap(Function.identity());
   }
@@ -122,6 +128,11 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
   public void onResult(ExecutionResult result, int myParamIndex, byte[] myParam) {
     // If it's a unique path, then our param goes to the input queue if it's not null
     if (myParam == null) return;
+    synchronized (totalsMutex) {
+      totalExecCount++;
+      totalExecNanoTimes = totalExecNanoTimes.add(BigInteger.valueOf(result.nanoTime));
+      totalExecByteSizes = totalExecByteSizes.add(BigInteger.valueOf(myParam.length));
+    }
     if (seenBranchesCache.checkUniqueAndStore(config.hasher.hash(result.branchHits))) {
       inputQueue.enqueue(new TestCase(myParam, result.branchHits, result.nanoTime));
     }
@@ -166,6 +177,42 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     return minValue + config.random.nextInt(Math.min(maxValue, limit) - minValue + 1);
   }
 
+  /** Generate a performance score for the given test case for use by {@link ByteArrayStage.RandomHavoc} */
+  public int performanceScore(TestCase entry) {
+    // Much of this taken from AFL with minor tweaks such as using overall averages instead of cycle averages
+    long avgNanos, avgByteSizes;
+    synchronized (totalsMutex) {
+      if (totalExecCount == 0) return 100;
+      BigInteger totalExecCount = BigInteger.valueOf(this.totalExecCount);
+      avgNanos = totalExecNanoTimes.divide(totalExecCount).longValue();
+      avgByteSizes = totalExecByteSizes.divide(totalExecCount).longValue();
+    }
+
+    int perfScore;
+
+    // Adjust score based on execution time
+    if (entry.nanoTime * 0.1 > avgNanos) perfScore = 10;
+    else if (entry.nanoTime * 0.25 > avgNanos) perfScore = 25;
+    else if (entry.nanoTime * 0.5 > avgNanos) perfScore = 50;
+    else if (entry.nanoTime * 0.75 > avgNanos) perfScore = 75;
+    else if (entry.nanoTime * 4 < avgNanos) perfScore = 300;
+    else if (entry.nanoTime * 3 < avgNanos) perfScore = 200;
+    else if (entry.nanoTime * 2 < avgNanos) perfScore = 150;
+    else perfScore = 100;
+
+    // Adjust score based on byte size
+    if (entry.bytes.length * 0.3 > avgByteSizes) perfScore *= 3;
+    else if (entry.bytes.length * 0.5 > avgByteSizes) perfScore *= 2;
+    else if (entry.bytes.length * 0.75 > avgByteSizes) perfScore *= 1.5;
+    else if (entry.bytes.length * 3 < avgByteSizes) perfScore *= 0.25;
+    else if (entry.bytes.length * 2 < avgByteSizes) perfScore *= 0.5;
+    else if (entry.bytes.length * 1.5 < avgByteSizes) perfScore *= 0.75;
+
+    // TODO: handicap
+    // TODO: depth
+    return Math.min(perfScore, config.havocMaxMult * 100);
+  }
+
   /** The config for a byte array generator. For defaults and easy use, use {@link #builder()} */
   public static class Config {
     /** Helper for building the config */
@@ -193,6 +240,12 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     public final int arithMax;
     /** See {@link Builder#havocCycles} */
     public final int havocCycles;
+    /** See {@link Builder#havocCyclesInit} */
+    public final int havocCyclesInit;
+    /** See {@link Builder#havocCyclesMin} */
+    public final int havocCyclesMin;
+    /** See {@link Builder#havocMaxMult} */
+    public final int havocMaxMult;
     /** See {@link Builder#havocStackPower} */
     public final int havocStackPower;
     /** See {@link Builder#havocBlockSmall} */
@@ -209,9 +262,9 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     public Config(List<byte[]> initialValues, List<byte[]> dictionary, BranchHit.Hasher hasher,
         Function<Config, HashCache> hashCacheCreator, Function<Config, InputQueue> inputQueueCreator,
         Function<Config, ByteArrayStage[]> stagesCreator, Function<Config, RandomHavocTweak[]> havocTweaksCreator,
-        Random random, boolean reuseLastStageAsInfinite,
-        int arithMax, int havocCycles, int havocStackPower, int havocBlockSmall, int havocBlockMedium,
-        int havocBlockLarge, int havocBlockXLarge, int maxInput) {
+        Random random, boolean reuseLastStageAsInfinite, int arithMax, int havocCycles, int havocCyclesInit,
+        int havocCyclesMin, int havocMaxMult, int havocStackPower, int havocBlockSmall,
+        int havocBlockMedium, int havocBlockLarge, int havocBlockXLarge, int maxInput) {
       this.initialValues = Objects.requireNonNull(initialValues);
       // Copy the dictionary and sort it smallest first
       this.dictionary = new ArrayList<>(Objects.requireNonNull(dictionary));
@@ -225,6 +278,9 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       this.reuseLastStageAsInfinite = reuseLastStageAsInfinite;
       this.arithMax = arithMax;
       this.havocCycles = havocCycles;
+      this.havocCyclesInit = havocCyclesInit;
+      this.havocCyclesMin = havocCyclesMin;
+      this.havocMaxMult = havocMaxMult;
       this.havocStackPower = havocStackPower;
       this.havocBlockSmall = havocBlockSmall;
       this.havocBlockMedium = havocBlockMedium;
@@ -239,7 +295,10 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
      */
     public static class Builder {
       public static final int ARITH_MAX_DEFAULT = 35;
-      public static final int HAVOC_CYCLES_DEFAULT = 1024;
+      public static final int HAVOC_CYCLES_DEFAULT = 256;
+      public static final int HAVOC_CYCLES_INIT_DEFAULT = 1024;
+      public static final int HAVOC_CYCLES_MIN_DEFAULT = 16;
+      public static final int HAVOC_MAX_MULT_DEFAULT = 16;
       public static final int HAVOC_STACK_POWER_DEFAULT = 7;
       public static final int HAVOC_BLOCK_SMALL_DEFAULT = 32;
       public static final int HAVOC_BLOCK_MEDIUM_DEFAULT = 128;
@@ -249,8 +308,25 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
       /** When doing arithmetic runs, loop from negative this value to positive. Default {@value ARITH_MAX_DEFAULT} */
       public int arithMax = ARITH_MAX_DEFAULT;
-      /** Number of byte arrays generated by each random havoc stage. Default {@value HAVOC_CYCLES_DEFAULT} */
+      /**
+       * Number of byte arrays generated by each non-init random havoc stage. Adjusted by a performance score. Default
+       * {@value HAVOC_CYCLES_DEFAULT}
+       */
       public int havocCycles = HAVOC_CYCLES_DEFAULT;
+      /**
+       * Number of byte arrays generated by each random havoc stage on first run. Adjusted by a performance score.
+       * Default {@value HAVOC_CYCLES_INIT_DEFAULT}
+       */
+      public int havocCyclesInit = HAVOC_CYCLES_INIT_DEFAULT;
+      /**
+       * Minimum number of byte arrays generated by each random havoc stage after performance score adjustment. Default
+       * {@value HAVOC_CYCLES_MIN_DEFAULT}
+       */
+      public int havocCyclesMin = HAVOC_CYCLES_MIN_DEFAULT;
+      /**
+       * Maximum value, as multiplier, of a performance score. Default {@value HAVOC_MAX_MULT_DEFAULT}
+       */
+      public int havocMaxMult = HAVOC_MAX_MULT_DEFAULT;
       /**
        * Number of random manips for each byte array, calc'd as:
        * <code>pow(2, 1 + random.nextInt(havocStackPower))</code>. Default {@value HAVOC_STACK_POWER_DEFAULT}
@@ -446,6 +522,9 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
             reuseLastStageAsInfinite == null ? reuseLastStageAsInfiniteDefault() : reuseLastStageAsInfinite,
             arithMax,
             havocCycles,
+            havocCyclesInit,
+            havocCyclesMin,
+            havocMaxMult,
             havocStackPower,
             havocBlockSmall,
             havocBlockMedium,
@@ -502,20 +581,22 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
     /**
      * Enqueue a completed test case. This should be thread-safe as it can be called by multiple threads simultaneously.
      * This should never block. The queue should be unbounded, but an exception can be thrown in a worst-case scenario.
+     * The given test case has been executed.
      */
     void enqueue(TestCase entry);
 
     /**
      * Remove and return the test case with the best score and has at least one non-duplicate branch hash (see
      * {@link ListBacked#cull()} for details). This should be thread-safe as it can be called by multiple threads
-     * simultaneously. This should never block. Return null if the queue is empty.
+     * simultaneously. This should never block. Return null if the queue is empty. If not null, it is assumed to have
+     * been executed.
      */
-    byte[] dequeue();
+    TestCase dequeue();
 
     /**
      * A thread-safe implementation backed by a {@link List}. Note, this thrashes the list quite a bit (i.e. calling
-     * {@link List#sort(Comparator)} + {@link List#clear()} + {@link List#addAll(Collection)}) during {@link #cull()}
-     * calls. The list should be optimized for those calls.
+     * {@link List#sort(Comparator)} + {@link List#remove(int)} + {@link List#add(int, Object)}) during {@link #cull()}
+     * calls. The list should be optimized for those calls (e.g. random access support).
      */
     class ListBacked implements InputQueue {
       /** The queue. This should never be accessed without being synchronized on first. */
@@ -537,6 +618,7 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
       @Override
       public void enqueue(TestCase entry) {
+        Objects.requireNonNull(entry.branchHits);
         synchronized (queue) {
           queue.add(entry);
           enqueuedSinceLastDequeued = true;
@@ -544,14 +626,14 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       }
 
       @Override
-      public byte[] dequeue() {
+      public TestCase dequeue() {
         synchronized (queue) {
           // Cull if there have been some enqueued since
           if (enqueuedSinceLastDequeued) {
             enqueuedSinceLastDequeued = false;
             cull();
           }
-          return queue.isEmpty() ? null : queue.remove(0).bytes;
+          return queue.isEmpty() ? null : queue.remove(0);
         }
       }
 
@@ -575,18 +657,20 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
         queue.sort(Comparator.comparingLong(t -> t.score));
         // Now go over each, moving to the front ones that have branches we haven't seen
         Set<Integer> seenBranchHashes = new HashSet<>();
-        List<TestCase> updated = new ArrayList<>(queue.size());
         int indexOfLastMovedForward = 0;
-        for (TestCase entry : queue) {
+        for (int i = 0; i < queue.size(); i++) {
+          TestCase entry = queue.get(i);
           boolean foundNewHash = false;
-          for (int i = 0; i < entry.branchHits.length; i++) {
+          for (int j = 0; j < entry.branchHits.length; j++) {
             // Any new hash means move the item
-            if (seenBranchHashes.add(hasher.hash(entry.branchHits[i])) && !foundNewHash) foundNewHash = true;
+            if (seenBranchHashes.add(hasher.hash(entry.branchHits[j])) && !foundNewHash) foundNewHash = true;
           }
-          if (foundNewHash) updated.add(indexOfLastMovedForward++, entry); else updated.add(entry);
+          if (foundNewHash) {
+            // Remove this one and put it earlier
+            queue.add(indexOfLastMovedForward, queue.remove(i));
+            indexOfLastMovedForward++;
+          }
         }
-        queue.clear();
-        queue.addAll(updated);
       }
     }
   }
@@ -595,13 +679,20 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
   public static class TestCase {
     /** The bytes for this test case */
     public final byte[] bytes;
-    // Can be null if not result of execution
-    /** All branch hits when it was executed */
+    /** All branch hits when it was executed. Null if not result of execution. */
     public final BranchHit[] branchHits;
-    /** The number of nanos the execution took */
+    /** The number of nanos the execution took. -1 if not result of execution. */
     public final long nanoTime;
-    /** The score of the test case which is bytes * nanos */
+    /** The score of the test case which is bytes * nanos. -1 if not result of execution. */
     public final long score;
+
+    /** Instantiate a test case that is not the result of an execution */
+    public TestCase(byte[] bytes) {
+      this.bytes = bytes;
+      branchHits = null;
+      nanoTime = -1;
+      score = -1;
+    }
 
     public TestCase(byte[] bytes, BranchHit[] branchHits, long nanoTime) {
       this.bytes = bytes;
@@ -609,6 +700,8 @@ public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
       this.nanoTime = nanoTime;
       score = bytes.length * nanoTime;
     }
+
+    public boolean isResultOfExecution() { return branchHits == null; }
 
     @Override
     public boolean equals(Object o) {

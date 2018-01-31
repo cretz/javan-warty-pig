@@ -162,8 +162,8 @@ public class FilePersistence {
     }
 
     @Override
-    public byte[] dequeue() {
-      byte[] item = super.dequeue();
+    public ByteArrayParamGenerator.TestCase dequeue() {
+      ByteArrayParamGenerator.TestCase item = super.dequeue();
       if (item == null) return null;
       try {
         checkSave();

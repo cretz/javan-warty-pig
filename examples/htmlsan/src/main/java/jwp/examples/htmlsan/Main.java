@@ -21,7 +21,9 @@ import java.util.function.Function;
 
 public class Main {
   public static void main(String[] args) throws Throwable {
-    Files.createDirectories(Paths.get("build/tmp/"));
+    // Uncomment below to wait for keypress to help with connecting profiles like VisualVM
+    // System.out.println("Press enter to start");
+    // System.in.read();
 
     // Whether to use persistence
     boolean persist = System.getProperty("jwp.noPersist") == null;
@@ -41,6 +43,7 @@ public class Main {
 
     // Build persisted versions
     if (persist) {
+      Files.createDirectories(Paths.get("build/tmp/"));
       seenHashes = new FilePersistence.FileBasedHashCache(
           new FilePersistence.FileBasedHashCache.Config(
               Paths.get("build/tmp/seen-hashes"), null, 30L
@@ -75,6 +78,8 @@ public class Main {
                 // Filter the bytes to only include ascii chars from 32 to 126
                 new ByteArrayParamGenerator(
                     ByteArrayParamGenerator.Config.builder().
+                        // Don't use hit counts in the hash
+                        hasher(BranchHit.Hasher.WITHOUT_HIT_COUNTS).
                         // Initial value that succeeds
                         initialValues(Arrays.asList("<pre>test</pre>".getBytes())).
                         // Pre-created (maybe) hash cache and input queue
@@ -111,11 +116,11 @@ public class Main {
           return res;
         })).
 
-        // Multithreaded instead of default
-        invoker(new Invoker.WithExecutorService(
+        // Multithreaded instead of default?
+        /*invoker(new Invoker.WithExecutorService(
             new ThreadPoolExecutor(5, 10, 30, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(500), new ThreadPoolExecutor.CallerRunsPolicy())
-        )).build()
+        )).*/build()
     );
 
     // Run the fuzzer for a minute

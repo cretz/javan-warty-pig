@@ -8,7 +8,7 @@ public class ExecutionResult {
   public final Method method;
   /** The parameter array that was used */
   public final Object[] params;
-  /** All of the branches hit during the invocation */
+  /** All of the branches hit during the invocation. This is expected to be sorted. */
   public final BranchHit[] branchHits;
   /** The number of nanos it took to execute the method */
   public final long nanoTime;
