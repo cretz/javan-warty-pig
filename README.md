@@ -93,6 +93,7 @@ Compile it with the agent on the classpath:
 
 Now run it with the agent set and see the unique paths:
 
+    $ java -javaagent:jwp-agent.jar Num
     Unique path for param 'null', result: false
     Unique path for param 'test', result: false
     Unique path for param '4est', result: false
@@ -107,23 +108,92 @@ It usually only takes a few milliseconds to generate the above. While the exampl
 background is the fuzzer is choosing new strings to try based on path changes in previous runs. We can see errors in
 `isNum` such as returning true for `.`.
 
-See more [examples](examples)...
+## Setup
 
-## Installation
+In order to run the fuzzer, you have to have the agent. The agent also installs itself on the classpath at runtime so it
+should not be provided to the classpath explicitly.
 
-TODO: Write this...
+### Manual
 
-## Usage
+The manual way to use the fuzzer is to just download the
+[latest agent JAR](https://jitpack.io/com/github/cretz/javan-warty-pig/agent/master-SNAPSHOT/agent-master-SNAPSHOT-agent.jar).
+Then use the JAR on the classpath for `javac` (e.g. `-cp path/to/agent.jar`) and use it as the agent for `java` (e.g.
+`-javaagent:path/to/agent.jar`).
 
-TODO: Write this...
+### Gradle
+
+Here's an example `build.gradle` for the [Quick Start](#quick-start) Java file assuming it is at
+`src/main/java/Num.java`:
+
+```groovy
+apply plugin: 'application'
+mainClassName = 'Num'
+
+// Set JitPack repo
+repositories { maven { url 'https://jitpack.io' } }
+
+dependencies {
+    // Compile only since the runtime agent injects it into the classpath
+    compileOnly 'com.github.cretz.javan-warty-pig:agent:master-SNAPSHOT:agent@jar'
+}
+
+run.doFirst {
+    // Get the full path of the agent JAR and set the javaagent
+    def agentPath = configurations.compileOnly.find { it.absolutePath.contains 'javan-warty-pig' }.absolutePath
+    jvmArgs "-javaagent:$agentPath"
+}
+```
+
+This compiles with the agent JAR on the classpath and runs with it as the agent. The example can then be executed with
+`path/to/gradle run`.
+
+## Usage Details
+
+TODO: enumerate the pieces like fuzzer, param prov, param gen, extras, invoker, tracer, advanced
+
+### Fuzzer
+
+(TODO)
+
+### Parameter Provider
+
+(TODO)
+
+### Parameter Generator
+
+(TODO)
+
+#### Byte Array Generator
+
+(TODO)
+
+### Extras
+
+(TODO)
+
+#### Test Writer
+
+(TODO)
+
+### Other Components
+
+(TODO)
+
+#### Invoker and Tracer
+
+(TODO)
+
+#### Agent and Controller
+
+(TODO)
 
 ## How Does it Work
 
-TODO: Write this...
+(TODO)
 
 ## FAQ
 
-TODO: Write this...
+(TODO)
 
 ## TODO
 
@@ -132,3 +202,4 @@ TODO: Write this...
 * Create CLI
 * Support "auto extras", i.e. auto-created dictionaries
 * Support input queue trimming
+* Support more default parameter types
