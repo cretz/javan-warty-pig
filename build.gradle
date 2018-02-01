@@ -12,6 +12,7 @@ buildscript {
 
 allprojects {
     apply plugin: 'java'
+    apply plugin: 'maven'
     sourceCompatibility = 1.8
     targetCompatibility = 1.8
     repositories {
@@ -51,8 +52,8 @@ project(':agent') {
     build.dependsOn 'shadowJar'
     shadowJar {
         relocate 'org.objectweb.asm', 'jwp.agent.shade.org.objectweb.asm'
-        baseName = 'jwp-agent'
-        classifier = null
+        baseName = 'jwp'
+        classifier = 'agent'
         version = null
         manifest {
             attributes 'Premain-Class': 'jwp.agent.AgentBootstrap'
@@ -65,6 +66,9 @@ project(':agent') {
         jvmArgs '-javaagent:build/libs/jwp-agent.jar'
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
+    }
+    artifacts {
+        archives shadowJar
     }
 }
 

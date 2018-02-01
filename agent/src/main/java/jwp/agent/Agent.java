@@ -1,6 +1,5 @@
 package jwp.agent;
 
-import jwp.fuzz.AgentController;
 import jwp.fuzz.ClassBranchAdapter;
 import org.objectweb.asm.Type;
 
@@ -9,12 +8,11 @@ import java.lang.instrument.Instrumentation;
 import java.lang.instrument.UnmodifiableClassException;
 import java.security.ProtectionDomain;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
-/** The main agent and class transformer. Access to this is provided via {@link AgentController}. */
-public class Agent implements ClassFileTransformer, AgentController.Agent {
+/** The main agent and class transformer. Access to this is provided via {@link jwp.fuzz.Agent.Controller}. */
+public class Agent implements ClassFileTransformer, jwp.fuzz.Agent {
 
-  protected static final String[] CLASS_PREFIXES_TO_IGNORE_DEFAULT =
+  protected static final String[] CLASS_PREFIXES_TO_EXCLUDE_DEFAULT =
       { "com.sun.", "java.", "jdk.", "jwp.agent.", "jwp.fuzz.", "kotlin.",
           "org.netbeans.lib.profiler.", "scala.", "sun." };
   protected static final boolean RETRANSFORM_BOOTSTRAPPED_DEFAULT = true;
@@ -22,28 +20,20 @@ public class Agent implements ClassFileTransformer, AgentController.Agent {
   /** Entry point delegated to from {@link AgentBootstrap#premain(String, Instrumentation)} */
   public static void premain(String agentArgs, Instrumentation inst) {
     Args args = Args.fromString(agentArgs);
-    Agent agent = new Agent(inst,
-        args.classPrefixesToIgnore == null ? CLASS_PREFIXES_TO_IGNORE_DEFAULT : args.classPrefixesToIgnore);
+    Agent agent = new Agent(inst, args.classPrefixesToInclude,
+        args.classPrefixesToExclude == null ? CLASS_PREFIXES_TO_EXCLUDE_DEFAULT : args.classPrefixesToExclude);
     agent.init(args.retransformBoostrapped == null ? RETRANSFORM_BOOTSTRAPPED_DEFAULT : args.retransformBoostrapped);
-    AgentController.setAgent(agent);
+    Controller.setAgent(agent);
   }
 
   protected final Instrumentation inst;
-  private volatile String[] classPrefixesToIgnore;
+  private volatile String[] classPrefixesToInclude;
+  private volatile String[] classPrefixesToExclude;
 
-  protected Agent(Instrumentation inst, String[] classPrefixesToIgnore) {
+  protected Agent(Instrumentation inst, String[] classPrefixesToInclude, String[] classPrefixesToExclude) {
     this.inst = inst;
-    this.classPrefixesToIgnore = classPrefixesToIgnore;
-  }
-
-  @Override
-  public synchronized void setClassPrefixesToIgnore(String[] classPrefixesToIgnore) {
-    this.classPrefixesToIgnore = classPrefixesToIgnore;
-  }
-
-  @Override
-  public Class[] getAllLoadedClasses() {
-    return inst.getAllLoadedClasses();
+    this.classPrefixesToInclude = classPrefixesToInclude;
+    this.classPrefixesToExclude = classPrefixesToExclude;
   }
 
   protected void init(boolean retransformBootstrapped) {
@@ -66,15 +56,17 @@ public class Agent implements ClassFileTransformer, AgentController.Agent {
     }
   }
 
-  @Override
-  public void retransformClasses(Class<?>... classes) throws UnmodifiableClassException {
-    inst.retransformClasses(classes);
-  }
-
   protected boolean isClassIgnored(Class<?> cls) { return isClassIgnored(cls.getName()); }
   protected boolean isClassIgnored(String className) {
-    for (String classPrefixToIgnore : classPrefixesToIgnore) {
-      if (className.startsWith(classPrefixToIgnore)) return true;
+    if (classPrefixesToInclude != null) {
+      for (String classPrefixToInclude : classPrefixesToInclude) {
+        if (className.startsWith(classPrefixToInclude)) return false;
+      }
+    }
+    if (classPrefixesToExclude != null) {
+      for (String classPrefixToExclude : classPrefixesToExclude) {
+        if (className.startsWith(classPrefixToExclude)) return true;
+      }
     }
     return false;
   }
@@ -91,12 +83,44 @@ public class Agent implements ClassFileTransformer, AgentController.Agent {
     }
   }
 
+  @Override
+  public String[] getClassPrefixesToInclude() {
+    return Arrays.copyOf(classPrefixesToInclude, classPrefixesToInclude.length);
+  }
+
+  @Override
+  public void setClassPrefixesToInclude(String... classPrefixesToInclude) {
+    this.classPrefixesToInclude = Arrays.copyOf(classPrefixesToInclude, classPrefixesToInclude.length);
+  }
+
+  @Override
+  public String[] getClassPrefixesToExclude() {
+    return Arrays.copyOf(classPrefixesToExclude, classPrefixesToExclude.length);
+  }
+
+  @Override
+  public void setClassPrefixesToExclude(String... classPrefixesToExclude) {
+    this.classPrefixesToExclude = Arrays.copyOf(classPrefixesToExclude, classPrefixesToExclude.length);
+  }
+
+  @Override
+  public Class[] getAllLoadedClasses() {
+    return inst.getAllLoadedClasses();
+  }
+
+  @Override
+  public void retransformClasses(Class<?>... classes) throws UnmodifiableClassException {
+    inst.retransformClasses(classes);
+  }
+
   /** Arguments passed in to the agent, parsed via {@link #fromString(String)} */
   public static class Args {
+
     /** Parse the given string into args or throw an exception on failure */
     public static Args fromString(String str) {
       Boolean retransformBoostrapped = null;
-      String[] classPrefixesToIgnore = null;
+      String[] classPrefixesToInclude = null;
+      String[] classPrefixesToExclude = null;
       if (str != null && !str.isEmpty()) {
         for (String arg : str.split(";")) {
           if ("noAutoRetransform".equals(arg)) {
@@ -104,20 +128,36 @@ public class Agent implements ClassFileTransformer, AgentController.Agent {
             continue;
           }
           String[] nameAndPieces = arg.split("=", 2);
-          if (nameAndPieces.length != 2 || !"classPrefixesToIgnore".equals(nameAndPieces[0]))
-            throw new IllegalArgumentException("Unknown arg: " + arg);
-          classPrefixesToIgnore = nameAndPieces[1].split(",");
+          if (nameAndPieces.length != 2) throw new IllegalArgumentException("Unknown arg: " + arg);
+          switch (nameAndPieces[0]) {
+            case "classPrefixesToInclude":
+              classPrefixesToInclude = stringArrayArg(nameAndPieces[1]);
+              break;
+            case "classPrefixesToExclude":
+              classPrefixesToExclude = stringArrayArg(nameAndPieces[1]);
+              break;
+            default:
+              throw new IllegalArgumentException("Unknown arg: " + arg);
+          }
         }
       }
-      return new Args(retransformBoostrapped, classPrefixesToIgnore);
+      return new Args(retransformBoostrapped, classPrefixesToInclude, classPrefixesToExclude);
+    }
+
+    protected static String[] stringArrayArg(String str) {
+      String[] ret = str.split(",");
+      if (ret.length == 1 && ret[0].isEmpty()) return new String[0];
+      return ret;
     }
 
     public final Boolean retransformBoostrapped;
-    public final String[] classPrefixesToIgnore;
+    public final String[] classPrefixesToInclude;
+    public final String[] classPrefixesToExclude;
 
-    public Args(Boolean retransformBoostrapped, String[] classPrefixesToIgnore) {
+    public Args(Boolean retransformBoostrapped, String[] classPrefixesToInclude, String[] classPrefixesToExclude) {
       this.retransformBoostrapped = retransformBoostrapped;
-      this.classPrefixesToIgnore = classPrefixesToIgnore;
+      this.classPrefixesToInclude = classPrefixesToInclude;
+      this.classPrefixesToExclude = classPrefixesToExclude;
     }
   }
 }

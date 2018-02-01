@@ -31,6 +31,16 @@ public abstract class ParamProvider implements AutoCloseable {
   public abstract Iterator<Object[]> iterator();
 
   /**
+   * Get the {@link Suggested} parameter provider for the parameter types.
+   * Uses {@link ParamGenerator#suggested(Class)} for each class.
+   */
+  public static Suggested suggested(Class<?>... parameterTypes) {
+    ParamGenerator<?>[] gens = new ParamGenerator[parameterTypes.length];
+    for (int i = 0; i < gens.length; i++) gens[i] = ParamGenerator.suggested(parameterTypes[i]);
+    return new Suggested(gens);
+  }
+
+  /**
    * Called on completion of an execution and the default implementation simply delegates to
    * {@link ParamGenerator#onResult(ExecutionResult, int, Object)}
    */

@@ -29,6 +29,41 @@ import java.util.stream.Stream;
  */
 public class ByteArrayParamGenerator implements ParamGenerator<byte[]> {
 
+  /** Collection of classes supported by {@link #suggested(Class, ParamGenerator)} */
+  public static final Set<Class<?>> SUGGESTABLE_BYTE_ARRAY_CLASSES = Collections.unmodifiableSet(new HashSet<>(
+      Arrays.asList(byte[].class, ByteBuffer.class, CharBuffer.class, String.class)));
+
+  /** Delegates to {@link #suggested(Class, ParamGenerator)} with default {@link Config} */
+  public static <T> ParamGenerator<T> suggested(Class<T> cls) {
+    return suggested(cls, Config.builder().build());
+  }
+
+  /** Delegates to {@link #suggested(Class, ParamGenerator)} */
+  public static <T> ParamGenerator<T> suggested(Class<T> cls, Config config) {
+    return suggested(cls, new ByteArrayParamGenerator(config));
+  }
+
+  /**
+   * Creates suggested generator for the given class. Throws if the class is not a form of byte array. For strings and
+   * char buffers, it only generates characters from 32 through 126 with charset ISO-LATIN-1 by default. Null is the
+   * first value on all.
+   */
+  @SuppressWarnings("unchecked")
+  public static <T> ParamGenerator<T> suggested(Class<T> cls, ParamGenerator<byte[]> gen) {
+    ParamGenerator<?> ret;
+    if (cls == byte[].class) ret = gen;
+    else if (cls == ByteBuffer.class) ret = byteBufferParamGenerator(gen);
+    else if (cls == CharBuffer.class || cls == String.class)  {
+      ParamGenerator<byte[]> onlySomeBytes = gen.filter(bytes -> {
+        for (byte b : bytes) if (b < 32 || b > 126) return false;
+        return true;
+      });
+      if (cls == CharBuffer.class) ret = charBufferParamGenerator(StandardCharsets.ISO_8859_1, onlySomeBytes);
+      else ret = stringParamGenerator(StandardCharsets.ISO_8859_1, onlySomeBytes);
+    } else throw new IllegalArgumentException("No suggested generator for " + cls);
+    return ((ParamGenerator<T>) ret).affectedStream(origStream -> Stream.concat(Stream.of((T) null), origStream));
+  }
+
   /** Helper to convert a byte array generator into a byte buffer generator */
   public static ParamGenerator<ByteBuffer> byteBufferParamGenerator(ParamGenerator<byte[]> gen) {
     return gen.mapNotNull(ByteBuffer::wrap, ByteBuffer::array);

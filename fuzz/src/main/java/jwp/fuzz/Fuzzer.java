@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 /** The main fuzzer that delegates to the different pieces configured via {@link Config} */
 public class Fuzzer {
@@ -152,12 +153,37 @@ public class Fuzzer {
        * exception when {@link Config#stopOnFutureFailure} is true. So this function can manipulate the future or the
        * result inside it. Note, the future does not fail just because the inner invocation does. Instead, it will
        * succeed and {@link ExecutionResult#exception} will contain the exception. There is optional and there is no
-       * default.
+       * default. Setting this overrides any value it may have had.
        */
       public Builder onSubmit(BiFunction<Config, CompletableFuture<ExecutionResult>,
           CompletableFuture<ExecutionResult>> onSubmit) {
         this.onSubmit = onSubmit;
         return this;
+      }
+      /** Instead of overwriting onSubmit like {@link #onSubmit(BiFunction)}, this chains it */
+      public Builder andOnSubmit(BiFunction<Config, CompletableFuture<ExecutionResult>,
+          CompletableFuture<ExecutionResult>> onSubmit) {
+        if (this.onSubmit == null) this.onSubmit = onSubmit;
+        else {
+          BiFunction<Config, CompletableFuture<ExecutionResult>, CompletableFuture<ExecutionResult>> origOnSubmit =
+              this.onSubmit, newOnSubmit = onSubmit;
+          this.onSubmit = (config, execRes) -> newOnSubmit.apply(config, origOnSubmit.apply(config, execRes));
+        }
+        return this;
+      }
+      /** Just uses {@link #onSubmit(BiFunction)} */
+      public Builder onEachResult(Consumer<ExecutionResult> consumer) {
+        return onSubmit((config, execResFut) -> execResFut.thenApply(execRes -> {
+          consumer.accept(execRes);
+          return execRes;
+        }));
+      }
+      /** Just uses {@link #andOnSubmit(BiFunction)} */
+      public Builder andOnEachResult(Consumer<ExecutionResult> consumer) {
+        return andOnSubmit((config, execResFut) -> execResFut.thenApply(execRes -> {
+          consumer.accept(execRes);
+          return execRes;
+        }));
       }
 
       /** See {@link #invoker(Invoker)} */

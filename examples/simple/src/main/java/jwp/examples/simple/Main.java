@@ -1,9 +1,10 @@
 package jwp.examples.simple;
 
-import jwp.fuzz.*;
+import jwp.fuzz.BranchHit;
+import jwp.fuzz.Fuzzer;
+import jwp.fuzz.Invoker;
+import jwp.fuzz.ParamProvider;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -31,21 +32,11 @@ public class Main {
         // Static parser method
         method(Main.class.getDeclaredMethod("parseNumber", String.class)).
 
-        // The suggested param provider w/ the single string param generator
-        params(new ParamProvider.Suggested(
-            ByteArrayParamGenerator.stringParamGenerator(
-                StandardCharsets.US_ASCII,
-                // Filter the bytes to only include ascii chars from 32 to 126
-                new ByteArrayParamGenerator(
-                    ByteArrayParamGenerator.Config.builder().
-                        // Initial value that succeeds
-                        initialValues(Arrays.asList("+1.2".getBytes())).build()
-                ).filter(Main::hasAcceptableChars)
-            )
-        )).
+        // The suggested param provider
+        params(ParamProvider.suggested(String.class)).
 
         // Handler to print out unique paths
-        onSubmit((config, fut) -> fut.thenApply(res -> {
+        onEachResult(res -> {
           completeCounter.incrementAndGet();
           int hash = hasher.hash(res.branchHits);
           // Print output if the execution path hasn't been seen before. (synchronized to prevent stdout overwrite)
@@ -54,8 +45,7 @@ public class Main {
                 (res.exception == null ? res.result : res.exception) + ", hash: " + hash +
                 " (after " + completeCounter + " total execs)");
           }
-          return res;
-        })).
+        }).
 
         // Multithreaded instead of default
         invoker(new Invoker.WithExecutorService(

@@ -1,9 +1,6 @@
 package jwp.fuzz;
 
-import java.util.Iterator;
-import java.util.Objects;
-import java.util.Spliterator;
-import java.util.Spliterators;
+import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -93,13 +90,38 @@ public interface ParamGenerator<T> extends AutoCloseable {
     return affectedStream(s -> s.filter(pred));
   }
 
+  /** All classes supported by {@link #suggestedFinite(Class)} */
+  Set<Class<?>> SUGGESTABLE_FINITE_CLASSES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+      Boolean.TYPE, Boolean.class, Byte.TYPE, Byte.class, Short.TYPE, Short.class, Integer.TYPE, Integer.class,
+      Long.TYPE, Long.class, Float.TYPE, Float.class, Double.TYPE, Double.class
+  )));
+
+  /** Whether a class will work with {@link #suggested(Class)} */
+  static boolean isSuggestableClass(Class<?> cls) {
+    return SUGGESTABLE_FINITE_CLASSES.contains(cls) ||
+        ByteArrayParamGenerator.SUGGESTABLE_BYTE_ARRAY_CLASSES.contains(cls);
+  }
+
+  /**
+   * Get a suggested generator from the given type. An exception is thrown if class is not supported.
+   * @see #suggestedFinite(Class)
+   * @see ByteArrayParamGenerator#suggested(Class)
+   */
+  static <T> ParamGenerator<T> suggested(Class<T> cls) {
+    if (SUGGESTABLE_FINITE_CLASSES.contains(cls)) return suggestedFinite(cls);
+    if (ByteArrayParamGenerator.SUGGESTABLE_BYTE_ARRAY_CLASSES.contains(cls))
+      return ByteArrayParamGenerator.suggested(cls);
+    throw new IllegalArgumentException("No suggested generator for " + cls);
+  }
+
   /**
    * Get a finite parameter generator for the given class. Only some classes are supported. An exception is thrown if a
    * class is not supported.
    */
-  static ParamGenerator<? super Object> suggestedFinite(Class<?> cls) {
-    if (cls == Boolean.TYPE) return of(true, false);
-    if (cls == Boolean.class) return of(null, true, false);
+  @SuppressWarnings("unchecked")
+  static <T> ParamGenerator<T> suggestedFinite(Class<T> cls) {
+    if (cls == Boolean.TYPE) return (ParamGenerator<T>) of(true, false);
+    if (cls == Boolean.class) return (ParamGenerator<T>) of(null, true, false);
     if (cls == Byte.TYPE) return ofFinite(ParamGenerator::interestingBytes);
     if (cls == Byte.class) return ofFinite(() -> Stream.concat(Stream.of((Integer) null), interestingBytes().boxed()));
     if (cls == Short.TYPE) return ofFinite(ParamGenerator::interestingShorts);
