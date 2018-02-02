@@ -14,6 +14,16 @@ import java.util.stream.StreamSupport;
  */
 public abstract class ParamProvider implements AutoCloseable {
   /**
+   * Get the {@link Suggested} parameter provider for the parameter types.
+   * Uses {@link ParamGenerator#suggested(Class)} for each class.
+   */
+  public static Suggested suggested(Class<?>... parameterTypes) {
+    ParamGenerator<?>[] gens = new ParamGenerator[parameterTypes.length];
+    for (int i = 0; i < gens.length; i++) gens[i] = ParamGenerator.suggested(parameterTypes[i]);
+    return new Suggested(gens);
+  }
+
+  /**
    * The immutable set of parameter generators that are closed when this is and have their
    * {@link ParamGenerator#onResult(ExecutionResult, int, Object)} called via {@link #onResult(ExecutionResult)}.
    */
@@ -29,16 +39,6 @@ public abstract class ParamProvider implements AutoCloseable {
    * arrays though. This iterator may be called multiple times.
    */
   public abstract Iterator<Object[]> iterator();
-
-  /**
-   * Get the {@link Suggested} parameter provider for the parameter types.
-   * Uses {@link ParamGenerator#suggested(Class)} for each class.
-   */
-  public static Suggested suggested(Class<?>... parameterTypes) {
-    ParamGenerator<?>[] gens = new ParamGenerator[parameterTypes.length];
-    for (int i = 0; i < gens.length; i++) gens[i] = ParamGenerator.suggested(parameterTypes[i]);
-    return new Suggested(gens);
-  }
 
   /**
    * Called on completion of an execution and the default implementation simply delegates to

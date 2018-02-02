@@ -31,7 +31,7 @@ public interface ParamGenerator<T> extends AutoCloseable {
    * <p>
    * Due to the fact that the generator may have its value mapped further down the line, the parameter in the "result"
    * at the "myParamIndex" may not be the same value. This is why "myParam" is provided. Due to way the mapping works
-   * on {@link #affectedStream(Function, Function)}, the value of "myValue" may not be the exact same object used as the
+   * on {@link #affectedStream(Function, Function)}, the value of "myParam" may not be the exact same object used as the
    * parameter. Instead it is just mapped back from what was actually used.
    */
   default void onResult(ExecutionResult result, int myParamIndex, T myParam) { }

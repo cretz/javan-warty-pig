@@ -61,7 +61,7 @@ public class BranchTracker {
   }
 
   /** Internal helper to add a branch hash for the current thread */
-  public static void addBranchHash(Integer branchHash) {
+  public static void addBranchHash(int branchHash) {
     BranchHits hits = branchHits.get(Thread.currentThread());
     // Even though hits isn't thread safe, we know we're safe since it's essentially thread local.
     if (hits != null) hits.addHit(branchHash);

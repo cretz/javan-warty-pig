@@ -64,7 +64,7 @@ public class AflDictionary {
     return ret;
   }
 
-  /** An dictionary entry */
+  /** A dictionary entry */
   public static class Entry {
     /** Read a single dictionary entry. Returns null if it's not an entry, throws on invalid format. */
     public static Entry fromLine(String line) {
@@ -179,6 +179,6 @@ public class AflDictionary {
     }
 
     @Override
-    public String toString() { return super.toString() + " (line " + lineNumber + ")"; }
+    public String getMessage() { return super.getMessage() + " (line " + lineNumber + ")"; }
   }
 }

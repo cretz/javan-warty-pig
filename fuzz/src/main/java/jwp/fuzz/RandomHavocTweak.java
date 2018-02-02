@@ -4,9 +4,6 @@ import java.util.Arrays;
 import java.util.function.BiFunction;
 import static jwp.fuzz.Util.*;
 
-// Should not store any mutable state
-/** TODO: javadoc */
-
 /**
  * Base interface for tweaks that occur as part of {@link ByteArrayStage.RandomHavoc}. They are usually only
  * instantiated once, so they should not store any cross-"apply" state. Many tweaks can occur within a single

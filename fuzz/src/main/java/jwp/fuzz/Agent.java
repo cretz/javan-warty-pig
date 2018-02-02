@@ -40,8 +40,6 @@ public interface Agent {
    */
   void retransformClasses(Class<?>... classes) throws UnmodifiableClassException;
 
-//  void retransformMethod(Class<?> cls, String methodName, Class<?>... paramTypes) throws UnmodifiableClassException;
-
   /** Controller to manually control the agent at runtime */
   class Controller implements Agent {
 
