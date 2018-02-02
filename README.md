@@ -318,7 +318,7 @@ extensible like everything else.
 
 The [Byte Array Generator](#byte-array-generator) is built using stages. A
 [ByteArrayStage](https://jitpack.io/com/github/cretz/javan-warty-pig/javan-warty-pig/master-SNAPSHOT/javadoc/jwp/fuzz/ByteArrayStage.html)
-is a stage that accepts a byte array to work from. Each stage return multiple mutations of a copied version of the
+is a stage that accepts a byte array to work from. Each stage returns multiple mutations of a copied version of the
 array. The set of stages is returned as an array from the `stagesCreator` on the `ByteArrayParamGenerator.Config`. The
 default configuration value returns a set of `ByteArrayStage`s that implement logic from `AFL`.
 
@@ -340,7 +340,7 @@ which is set via the `invoker` on the `Fuzzer.Config`. By default the
 is used with a
 [Util.CurrentThreadExecutor](https://jitpack.io/com/github/cretz/javan-warty-pig/javan-warty-pig/master-SNAPSHOT/javadoc/jwp/fuzz/Util.CurrentThreadExecutorService.html).
 A different `ExecutorService` can be provided. Currently the fuzzer sends as many execution requests as it can to the
-invoker. The only thing that slows it down is the invokers bounded queue. Therefore, developers are encouraged not to
+invoker. The only thing that slows it down is the invoker's bounded queue. Therefore, developers are encouraged not to
 use `ExecutorService`s with unbounded queues lest the memory shoot up very quickly as the fuzzer continually submits. So
 a manually created `ThreadPoolExecutor` is ideal. If unbounded queues are a must, the `Fuzzer.Config` does have a
 `sleepAfterSubmit` value.
@@ -363,9 +363,29 @@ The `Agent.Controller` is a singleton which can be accessed via the `getInstance
 the agent for retransforming classes, seeing what classes are loaded, setting which classes are included/excluded, etc.
 Care should be taken on some of these calls.
 
-The actual agent that starts does take parameters...TODO
+The actual agent that starts does take parameters. The parameters of a Java agent are set after an equals sign, e.g.:
 
-## How Does it Work
+    -javaagent:path/to/jar=OPTIONS
+
+The `OPTIONS` is a string for the options. The agent will fail to start with invalid options. There are three possible
+options, separated by a semicolon. They are:
+
+* `noAutoRetransform` - When present, this tells the agent not to eagerly retransform classes that are already on the
+  classpath when the agent starts (i.e. the JVM classes on the bootloader path). By default this is not set which means
+  the agent will eagerly retransform classes already loaded, but it usually doesn't transform any because the default
+  `classPrefixesToExclude` excludes all the core JVM classes.
+* `classPrefixesToInclude=string1,string2` - A set of string prefixes that, if a fully-qualified class name starts with
+  any of, it will be instrumented. If a class is prefixed by any of these values, it is transformed regardless of what
+  `classPrefixesToExclude` is set as. By default this is not set which means all non-excluded classes are instrumented.
+* `classPrefixesToExclude=class1,class2` - A set of string prefixes that, if a fully-qualified class name starts with
+  any of, it will not be instrumented. This does not override `classPrefixesToInclude` so if a prefix is found there, it
+  is included regardless of what is set here. By default this is set to: `com.sun.`, `java.`, `jdk.`, `jwp.agent.`,
+  `jwp.fuzz.`, `kotlin.`, `org.netbeans.lib.profiler.`, `scala.`, and `sun.`.
+
+These options rarely need to be set and depending on what they are set to can cause stack overflow issues, especially
+when classes to transform are the same ones used by the transformer.
+
+## How it Works
 
 JWP uses bytecode instrumentation via the
 [java.lang.instrument](https://docs.oracle.com/javase/8/docs/api/java/lang/instrument/package-summary.html#package.description)
@@ -373,31 +393,32 @@ package. The agent is loaded and sets itself up as a classfile transformer. Then
 we want to transform, [ASM](http://asm.ow2.org/) is used to insert specific calls at branching operations.
 
 The bytecodes that are considered branches are
-[ones that compare to 0](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.if_cond) (i.e. `IFEQ`,
+[ones that compare to 0](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.if_cond) (`IFEQ`,
 `IFNE`, `IFLT`, `IFGE`, `IFGT`, and `IFLE`),
 [ones that compare two ints](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.if_icmp_cond),
-(i.e. `IF_ICMPEQ`, `IF_ICMPNE`, `IF_ICMPLT`, `IF_ICMPGE`, `IF_ICMPGT`, and `IF_ICMPLE`),
+(`IF_ICMPEQ`, `IF_ICMPNE`, `IF_ICMPLT`, `IF_ICMPGE`, `IF_ICMPGT`, and `IF_ICMPLE`),
 [ones that compare two objects](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.if_acmp_cond)
-(i.e. `IF_ACMPEQ` and `IF_ACMPNE`), ones that compare objects to null (i.e.
+(`IF_ACMPEQ` and `IF_ACMPNE`), ones that compare objects to null (
 [IFNULL](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.ifnull) and
-[IFNONNULL](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.ifnonnull)), switches (i.e.
+[IFNONNULL](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.ifnonnull)), switches (
 [TABLESWITCH](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.tableswitch) and
-[LOOKUPSWITCH](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.lookupswitch), and
+[LOOKUPSWITCH](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5.lookupswitch)), and
 [catch handlers](https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-3.html#jvms-3.12). Each branch is given a hash
 built from the JVM class signature, the method name, the JVM method signature, and the index of the instruction (after
 our instructions are inserted).
 
 For simple "if" instructions, the values to check are duplicated on the stack and then a static method is called with
-those two values and the branch hash. The method checks what the branch instruction would check and if the branch
+those values and the branch hash. The method checks what the branch instruction would check and if the branch
 instruction will be invoked, a "hit" is stored. For the "switch" instructions, the value to check is duplicated on the
 stack and passed along with the range/set of "branchable" values and the branch hash to a static method call. The method
-checks if the value would cause a branch and if so, registers a "hit". For the catch handlers, the branch already
-happened so a simple static method call is made saying so with the hash.
+checks if the value would cause a branch and if so, registers a "hit". The hash for the switch hit is actually a
+combination of the branch hash and the value since different values can go to different places. For the catch handlers,
+the branch already happened so a simple static method call is made saying so with the hash.
 
 Branch hits are stored by thread + branch hash and keep track of the number of times they were hit. Each "hit" will get
 or create a new branch hit instance and increment the count. When the tracer is started for a thread, the hit tracker is
-notified the thread needs to be tracked. When a "hit" is made it is not incremented/stored unless the thread is being
-tracked. Once the tracer is stopped for a thread, the hits are serialized, sorted, and returned.
+notified that the thread needs to be tracked. When a "hit" is made it is not incremented/stored unless the thread is
+being tracked. Once the tracer is stopped for a thread, the hits are serialized, sorted, and returned.
 
 [Byte Array Generator](#byte-array-generator)s use the hashes of those branch hits to determine whether a path has been
 seen before. There are two types of common hashes: ones just for the branch and one for the branch and the number of
@@ -405,12 +426,12 @@ times it was hit grouped into buckets. By default the latter is used and the hit
 1, 2, 3, 4, 8, 16, 32, or 128. This mimics [AFL](http://lcamtuf.coredump.cx/afl/).
 
 On first run, since the input queue is empty, the byte array generator uses the initial values specified in the config.
-The byte array then goes the stages to generate several mutated versions of itself and those are used as parameters. For
-each never-before-seen path, the byte array that was used as a parameter for it is enqueued into the input queue. The
-input queue is kept in an order where the ones that ran the shortest and hit more unique branch pieces. For each
-successive byte array generator iteration, an item is dequeued off the input queue and ran through the stages to
-generate more parameters. If the input queue is empty the last entry is just ran over the last stage (the random stage)
-over and over again. All of this also mostly mimics [AFL](http://lcamtuf.coredump.cx/afl/).
+The byte array then goes through the stages to generate several mutated versions of itself and those are used as
+parameters. For each never-before-seen path, the byte array that was used as a parameter for it is enqueued into the
+input queue. The input queue is ordered to prioritize the ones that ran the shortest and hit more unique branch pieces.
+For each successive byte array generator iteration, an item is dequeued off the input queue and ran through the stages
+to generate more parameters. If the input queue is empty, the last entry is just ran through the last stage (the random
+stage) over and over again. All of this also mostly mimics [AFL](http://lcamtuf.coredump.cx/afl/).
 
 ## TODO
 
