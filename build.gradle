@@ -1,6 +1,3 @@
-group 'javan-warty-pig'
-version '0.1.0'
-
 buildscript {
     repositories {
         jcenter()
@@ -11,8 +8,10 @@ buildscript {
 }
 
 allprojects {
+    group 'com.github.cretz.jwp'
+    version '0.1.0'
+
     apply plugin: 'java'
-    apply plugin: 'maven'
     sourceCompatibility = 1.8
     targetCompatibility = 1.8
     repositories {
@@ -43,18 +42,18 @@ subprojects {
 }
 
 project(':agent') {
+    apply plugin: 'maven'
+    apply plugin: 'signing'
     apply plugin: 'com.github.johnrengelman.shadow'
     dependencies {
-        compile project(':fuzz')
+        implementation project(':fuzz')
 
         testCompile 'junit:junit:4.12'
     }
     build.dependsOn 'shadowJar'
     shadowJar {
         relocate 'org.objectweb.asm', 'jwp.agent.shade.org.objectweb.asm'
-        baseName = 'jwp'
-        classifier = 'agent'
-        version = null
+        classifier = null
         manifest {
             attributes 'Premain-Class': 'jwp.agent.AgentBootstrap'
             attributes 'Can-Redefine-Classes': 'true'
@@ -70,9 +69,13 @@ project(':agent') {
     artifacts {
         archives shadowJar
     }
+
+    publishSettings(project, 'jwp-agent', 'Javan Warty Pig Agent', uploadArchives)
 }
 
 project(':fuzz') {
+    apply plugin: 'maven'
+    apply plugin: 'signing'
     dependencies {
         compile 'org.ow2.asm:asm:6.0'
         compile 'org.ow2.asm:asm-commons:6.0'
@@ -87,6 +90,8 @@ project(':fuzz') {
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
     }
+
+    publishSettings(project, 'jwp-fuzz', 'Javan Warty Pig Fuzz Library', uploadArchives)
 }
 
 project(':extras') {
@@ -195,3 +200,53 @@ javadoc {
 }
 
 configurations.archives.artifacts.removeAll { it.archiveTask.is jar }
+
+def publishSettings(project, projectName, projectDescription, uploadTask) {
+    project.with {
+        if (!project.hasProperty('ossrhUsername')) return
+
+        archivesBaseName = projectName
+
+        signing {
+            sign configurations.archives
+        }
+
+        uploadTask.with {
+            repositories {
+                mavenDeployer {
+                    beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+                    repository(url: 'https://oss.sonatype.org/service/local/staging/deploy/maven2/') {
+                        authentication(userName: ossrhUsername, password: ossrhPassword)
+                    }
+                    snapshotRepository(url: 'https://oss.sonatype.org/content/repositories/snapshots/') {
+                        authentication(userName: ossrhUsername, password: ossrhPassword)
+                    }
+                    pom.project {
+                        name projectName
+                        packaging 'jar'
+                        description projectDescription
+                        url 'https://github.com/cretz/javan-warty-pig'
+                        scm {
+                            connection 'scm:git:git@github.com:cretz/javan-warty-pig.git'
+                            developerConnection 'scm:git:git@github.com:cretz/javan-warty-pig.git'
+                            url 'git@github.com:cretz/javan-warty-pig.git'
+                        }
+                        licenses {
+                            license {
+                                name 'MIT License'
+                                url 'https://opensource.org/licenses/MIT'
+                            }
+                        }
+                        developers {
+                            developer {
+                                id 'cretz'
+                                name 'Chad Retz'
+                                url 'https://github.com/cretz'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
