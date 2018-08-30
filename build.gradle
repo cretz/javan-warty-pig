@@ -46,7 +46,7 @@ project(':agent') {
     apply plugin: 'signing'
     apply plugin: 'com.github.johnrengelman.shadow'
     dependencies {
-        implementation project(':fuzz')
+        compile project(':fuzz')
 
         testCompile 'junit:junit:4.12'
     }
@@ -70,7 +70,8 @@ project(':agent') {
         archives shadowJar
     }
 
-    publishSettings(project, 'jwp-agent', 'Javan Warty Pig Agent', uploadArchives)
+    // Change scope of jwp-fuzz to provided
+    publishSettings(project, 'jwp-agent', 'Javan Warty Pig Agent', ['jwp-fuzz'])
 }
 
 project(':fuzz') {
@@ -91,10 +92,12 @@ project(':fuzz') {
         testLogging.showStandardStreams = true
     }
 
-    publishSettings(project, 'jwp-fuzz', 'Javan Warty Pig Fuzz Library', uploadArchives)
+    publishSettings(project, 'jwp-fuzz', 'Javan Warty Pig Fuzz Library')
 }
 
 project(':extras') {
+    apply plugin: 'maven'
+    apply plugin: 'signing'
     dependencies {
         compile 'com.squareup:javapoet:1.9.0'
 
@@ -108,6 +111,9 @@ project(':extras') {
         outputs.upToDateWhen { false }
         testLogging.showStandardStreams = true
     }
+
+    // Change scope of agent to provided
+    publishSettings(project, 'jwp-extras', 'Javan Warty Pig Extras Library', ['jwp-agent'])
 }
 
 project(':examples') {
@@ -201,7 +207,7 @@ javadoc {
 
 configurations.archives.artifacts.removeAll { it.archiveTask.is jar }
 
-def publishSettings(project, projectName, projectDescription, uploadTask) {
+def publishSettings(project, projectName, projectDescription, changeScopeToProvided = []) {
     project.with {
         if (!project.hasProperty('ossrhUsername')) return
 
@@ -211,7 +217,7 @@ def publishSettings(project, projectName, projectDescription, uploadTask) {
             sign configurations.archives
         }
 
-        uploadTask.with {
+        uploadArchives {
             repositories {
                 mavenDeployer {
                     beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
@@ -247,6 +253,13 @@ def publishSettings(project, projectName, projectDescription, uploadTask) {
                     }
                 }
             }
+        }
+
+        // Set some dependencies to provided scope
+        def installer = install.repositories.mavenInstaller
+        def deployer = uploadArchives.repositories.mavenDeployer
+        [installer, deployer]*.pom*.whenConfigured { pom ->
+            pom.dependencies.find { it.artifactId in changeScopeToProvided }.each { it.scope = 'provided' }
         }
     }
 }
